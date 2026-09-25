@@ -1,13 +1,75 @@
 {
   "name": "progettobe",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Backend gestionale per strutture ricettive (B&B, hotel, resort, bivacchi)",
+  "private": true,
+  "main": "server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "jest --selectProjects unit && jest --selectProjects integration --runInBand --passWithNoTests",
+    "test:unit": "jest --selectProjects unit",
+    "test:integration": "jest --selectProjects integration --runInBand --passWithNoTests",
+    "test:coverage": "jest --coverage --runInBand",
+    "db:crea": "node database/crea-database.js",
+    "prepare": "husky"
+  },
+  "jest": {
+    "projects": [
+      {
+        "displayName": "unit",
+        "testEnvironment": "node",
+        "testMatch": [
+          "<rootDir>/tests/unit/**/*.test.js"
+        ]
+      },
+      {
+        "displayName": "integration",
+        "testEnvironment": "node",
+        "testMatch": [
+          "<rootDir>/tests/integration/**/*.test.js"
+        ]
+      }
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "database/**/*.js"
+    ]
+  },
+  "lint-staged": {
+    "*.js": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs"
+  "author": "Marco Sabatini",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^18.0.4",
+    "joi": "^18.2.9",
+    "mysql2": "^3.24.4",
+    "sequelize": "^6.37.8",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.12.0",
+    "husky": "^9.1.7",
+    "jest": "^30.5.2",
+    "lint-staged": "^17.5.1",
+    "prettier": "^3.9.9"
+  }
 }
