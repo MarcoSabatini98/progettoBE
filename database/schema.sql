@@ -81,6 +81,7 @@ CREATE TABLE utenti (
   email_verificata_il   DATETIME      NULL,
   notifiche_email       BOOLEAN       NOT NULL DEFAULT TRUE,
   punti_fedelta         INT           NOT NULL DEFAULT 0,   -- aggiornato dal trigger su movimenti_punti
+  ospite_id             INT UNSIGNED  NULL,   -- anagrafica personale del titolare (area cliente); FK dopo ospiti
   ultimo_accesso_il     DATETIME      NULL,
   creato_il             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   aggiornato_il         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -88,6 +89,7 @@ CREATE TABLE utenti (
   PRIMARY KEY (id),
   UNIQUE KEY uq_utenti_uuid  (uuid),
   UNIQUE KEY uq_utenti_email (email),
+  UNIQUE KEY uq_utenti_ospite (ospite_id),
   KEY idx_utenti_ruolo (ruolo),
   CONSTRAINT chk_utenti_punti CHECK (punti_fedelta >= 0),
   FOREIGN KEY (ruolo) REFERENCES ruoli(codice) ON UPDATE CASCADE
@@ -541,6 +543,11 @@ CREATE TABLE ospiti (
   KEY idx_ospiti_nominativo (cognome, nome),
   FOREIGN KEY (utente_id) REFERENCES utenti(id) ON DELETE SET NULL
 );
+
+-- ospiti.utente_id = account che ha salvato l'ospite (sé stesso o compagni di
+-- viaggio); utenti.ospite_id = la SUA anagrafica, con i suoi documenti.
+ALTER TABLE utenti
+  ADD CONSTRAINT fk_utenti_ospite FOREIGN KEY (ospite_id) REFERENCES ospiti(id) ON DELETE SET NULL;
 
 CREATE TABLE documenti_ospite (
   id              INT UNSIGNED  NOT NULL AUTO_INCREMENT,
