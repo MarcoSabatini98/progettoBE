@@ -33,6 +33,9 @@ function eta(nascita, alGiorno) {
   return a - an - (m < mn || (m === mn && g < gn) ? 1 : 0);
 }
 
+/** '2026-07-14' → '14/07/2026' (stringa vuota se manca). */
+const dataItaliana = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
+
 const aggiungiOre = (data, ore) => new Date(data.getTime() + ore * 3_600_000);
 const aggiungiMinuti = (data, minuti) => new Date(data.getTime() + minuti * 60_000);
 
@@ -59,4 +62,5 @@ module.exports = {
   aggiungiOre,
   aggiungiMinuti,
   istanteLocale,
+  dataItaliana,
 };

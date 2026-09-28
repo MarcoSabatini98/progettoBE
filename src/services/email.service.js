@@ -112,6 +112,28 @@ const MODELLI = {
       link: d.link,
     }),
   },
+  promemoria_checkin: {
+    it: (d) => ({
+      oggetto: `Ti aspettiamo il ${d.arrivo}`,
+      righe: [
+        `Gentile ${d.nome},`,
+        `ti ricordiamo che il tuo soggiorno (prenotazione ${d.codice}) inizia il ${d.arrivo}.`,
+        `Check-in dalle ${d.checkin}.`,
+        d.link ? 'Completa il check-in online dal link qui sotto per fare prima all’arrivo.' : '',
+      ],
+      link: d.link,
+    }),
+    en: (d) => ({
+      oggetto: `See you on ${d.arrivo}`,
+      righe: [
+        `Dear ${d.nome},`,
+        `this is a reminder that your stay (booking ${d.codice}) starts on ${d.arrivo}.`,
+        `Check-in from ${d.checkin}.`,
+        d.link ? 'Complete the online check-in from the link below to save time.' : '',
+      ],
+      link: d.link,
+    }),
+  },
   prenotazione_cancellata: {
     it: (d) => ({
       oggetto: `Prenotazione ${d.codice} cancellata`,

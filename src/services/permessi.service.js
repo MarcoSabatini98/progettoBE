@@ -1,123 +1,146 @@
+// src/services/permessi.service.js
+//
 // Permessi per ruolo, configurabili dall'admin. L'admin li ha sempre tutti:
-// non può togliersene nessuno per sbaglio e restare chiuso fuori.
+// così non può togliersene nessuno per sbaglio e restare chiuso fuori.
+// I permessi si leggono a ogni richiesta, quindi restano in memoria
+// finché l'admin non li cambia.
 
-const { Ruolo, Permesso, RuoloPermesso, RegolaChat, sequelize } = require('../models');
-const { oppure404, richiestaNonValida } = require('../utils/errori');
+const { sequelize } = require('../models');
+const permessiRepo = require('../repositories/permessi.repository');
+const { RUOLI } = require('../constants/ruoli.constants');
+const { nonTrovato, richiestaNonValida } = require('../utils/errori');
 
-const ADMIN = 'admin';
-
-/** Map ruolo → Set di codici permesso. */
+// Map ruolo → Set dei codici permesso.
 let cache = null;
 
-async function carica() {
-  if (!cache) {
-    const [righe, tutti] = await Promise.all([
-      RuoloPermesso.findAll({ raw: true }),
-      Permesso.findAll({ attributes: ['codice'], raw: true }),
-    ]);
-    cache = new Map();
-    for (const { ruolo, permesso } of righe) {
-      if (!cache.has(ruolo)) cache.set(ruolo, new Set());
-      cache.get(ruolo).add(permesso);
-    }
-    cache.set(ADMIN, new Set(tutti.map((p) => p.codice)));
+function svuotaCache() {
+  cache = null;
+}
+
+async function caricaPermessi() {
+  if (cache) {
+    return cache;
   }
+
+  const assegnazioni = await permessiRepo.trovaAssegnazioni();
+  const catalogo = await permessiRepo.trovaPermessi();
+
+  const mappa = new Map();
+  for (const assegnazione of assegnazioni) {
+    if (!mappa.has(assegnazione.ruolo)) {
+      mappa.set(assegnazione.ruolo, new Set());
+    }
+    mappa.get(assegnazione.ruolo).add(assegnazione.permesso);
+  }
+  mappa.set(RUOLI.ADMIN, new Set(catalogo.map((permesso) => permesso.codice)));
+
+  cache = mappa;
   return cache;
 }
 
 async function ha(ruolo, permesso) {
-  return (await carica()).get(ruolo)?.has(permesso) ?? false;
+  const mappa = await caricaPermessi();
+  return mappa.get(ruolo)?.has(permesso) ?? false;
 }
 
 async function permessiDi(ruolo) {
-  return [...((await carica()).get(ruolo) ?? [])].sort();
+  const mappa = await caricaPermessi();
+  return [...(mappa.get(ruolo) ?? [])].sort();
 }
 
 /** Ruoli, catalogo dei permessi e assegnazioni: la matrice per l'admin. */
 async function matrice() {
-  const [ruoli, permessi, mappa] = await Promise.all([
-    Ruolo.findAll({ order: [['staff', 'DESC'], 'codice'], raw: true }),
-    Permesso.findAll({ order: ['modulo', 'codice'], raw: true }),
-    carica(),
-  ]);
+  const permessi = await permessiRepo.trovaPermessi();
+  const ruoli = await permessiRepo.trovaRuoliConPermessi();
+  const tutti = permessi.map((permesso) => permesso.codice);
+
   return {
     permessi,
-    ruoli: ruoli.map((r) => ({ ...r, permessi: [...(mappa.get(r.codice) ?? [])].sort() })),
+    ruoli: ruoli.map((ruolo) => ({
+      codice: ruolo.codice,
+      nome: ruolo.nome,
+      descrizione: ruolo.descrizione,
+      staff: ruolo.staff,
+      permessi:
+        ruolo.codice === RUOLI.ADMIN
+          ? tutti
+          : ruolo.permessi.map((permesso) => permesso.codice).sort(),
+    })),
   };
 }
 
-/** Sostituisce i permessi di un ruolo (non admin). */
+/** Sostituisce i permessi di un ruolo (tranne l'admin). */
 async function impostaPermessi(ruolo, codici) {
-  if (ruolo === ADMIN) {
+  if (ruolo === RUOLI.ADMIN) {
     throw richiestaNonValida(
       'RUOLO_NON_MODIFICABILE',
-      'L’amministratore ha sempre tutti i permessi',
+      "L'amministratore ha sempre tutti i permessi",
     );
   }
-  oppure404(await Ruolo.findByPk(ruolo), 'RUOLO_NON_TROVATO', 'Ruolo non trovato');
-  const validi = new Set(
-    (await Permesso.findAll({ attributes: ['codice'], raw: true })).map((p) => p.codice),
-  );
-  const sconosciuti = codici.filter((c) => !validi.has(c));
-  if (sconosciuti.length) {
+  if (!(await permessiRepo.trovaRuoloPerCodice(ruolo))) {
+    throw nonTrovato('RUOLO_NON_TROVATO', 'Ruolo non trovato');
+  }
+
+  const catalogo = await permessiRepo.trovaPermessi();
+  const esistenti = new Set(catalogo.map((permesso) => permesso.codice));
+  const sconosciuti = codici.filter((codice) => !esistenti.has(codice));
+  if (sconosciuti.length > 0) {
     throw richiestaNonValida(
       'PERMESSO_SCONOSCIUTO',
       `Permessi inesistenti: ${sconosciuti.join(', ')}`,
     );
   }
+
+  const senzaDoppioni = [...new Set(codici)];
   await sequelize.transaction(async (transaction) => {
-    await RuoloPermesso.destroy({ where: { ruolo }, transaction });
-    await RuoloPermesso.bulkCreate(
-      [...new Set(codici)].map((permesso) => ({ ruolo, permesso })),
-      { transaction },
-    );
+    await permessiRepo.sostituisciPermessiRuolo(ruolo, senzaDoppioni, transaction);
   });
   svuotaCache();
-  return permessiDi(ruolo);
+  return await permessiDi(ruolo);
 }
 
-// --- regole della chat interna ----------------------------------------------
+// ─────────────────────────────────────
+// Regole della chat interna
+// ─────────────────────────────────────
 
-const coppia = (a, b) => (a <= b ? [a, b] : [b, a]);
+// Una regola vale nei due sensi: la coppia si salva sempre in ordine alfabetico.
+function ordinaCoppia(ruoloA, ruoloB) {
+  return ruoloA <= ruoloB ? [ruoloA, ruoloB] : [ruoloB, ruoloA];
+}
 
-function regoleChat() {
-  return RegolaChat.findAll({ order: ['ruolo_a', 'ruolo_b'], raw: true });
+async function regoleChat() {
+  return await permessiRepo.trovaRegoleChat();
 }
 
 async function puoChattare(ruoloA, ruoloB) {
-  const [ruolo_a, ruolo_b] = coppia(ruoloA, ruoloB);
-  return Boolean(await RegolaChat.findOne({ where: { ruolo_a, ruolo_b } }));
+  const [primo, secondo] = ordinaCoppia(ruoloA, ruoloB);
+  const regola = await permessiRepo.trovaRegolaChat(primo, secondo);
+  return Boolean(regola);
 }
 
-/** Sostituisce tutte le regole: [[ruolo, ruolo], ...]. */
+/** Sostituisce tutte le regole. coppie = [[ruolo, ruolo], ...] */
 async function impostaRegoleChat(coppie) {
-  const staff = new Set(
-    (await Ruolo.findAll({ where: { staff: true }, attributes: ['codice'], raw: true })).map(
-      (r) => r.codice,
-    ),
-  );
-  const nonStaff = coppie.flat().filter((r) => !staff.has(r));
-  if (nonStaff.length) {
+  const staff = await permessiRepo.trovaRuoliStaff();
+  const ruoliStaff = new Set(staff.map((ruolo) => ruolo.codice));
+
+  const nonStaff = [...new Set(coppie.flat())].filter((ruolo) => !ruoliStaff.has(ruolo));
+  if (nonStaff.length > 0) {
     throw richiestaNonValida(
       'RUOLO_NON_STAFF',
-      `La chat interna è solo per lo staff: ${[...new Set(nonStaff)].join(', ')}`,
+      `La chat interna è solo per lo staff: ${nonStaff.join(', ')}`,
     );
   }
-  const uniche = [...new Map(coppie.map((c) => [coppia(...c).join('|'), coppia(...c)])).values()];
-  await sequelize.transaction(async (transaction) => {
-    await RegolaChat.destroy({ where: {}, transaction });
-    await RegolaChat.bulkCreate(
-      uniche.map(([ruolo_a, ruolo_b]) => ({ ruolo_a, ruolo_b })),
-      {
-        transaction,
-      },
-    );
-  });
-  return regoleChat();
-}
 
-function svuotaCache() {
-  cache = null;
+  const uniche = new Map();
+  for (const [ruoloA, ruoloB] of coppie) {
+    const coppia = ordinaCoppia(ruoloA, ruoloB);
+    uniche.set(coppia.join('|'), coppia);
+  }
+
+  await sequelize.transaction(async (transaction) => {
+    await permessiRepo.sostituisciRegoleChat([...uniche.values()], transaction);
+  });
+  return await regoleChat();
 }
 
 module.exports = {

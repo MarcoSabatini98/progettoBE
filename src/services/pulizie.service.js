@@ -1,92 +1,49 @@
-// Pulizie (attività con checklist) e segnalazioni di manutenzione.
-// Lo stato di pulizia della camera lo aggiorna il DB (trigger su attivita_pulizia);
-// le attività di partenza le crea il DB al check-out.
+// src/services/pulizie.service.js
+//
+// Attività di pulizia con checklist.
+// Il DB fa da solo: attività di partenza al check-out, date di avanzamento e
+// stato di pulizia della camera (trigger su attivita_pulizia).
 //
 // Chi fa cosa:
-//  - pulizie.esegui: avanza le PROPRIE attività (o prende quelle non assegnate)
+//  - pulizie.esegui: avanza le PROPRIE attività (o prende quelle libere)
 //  - pulizie.gestisci: crea, assegna, verifica, riapre qualsiasi attività
-//  - manutenzione.segnala / manutenzione.gestisci: apre / prende in carico e chiude
 
-const { Op } = require('sequelize');
-const {
-  AttivitaPulizia,
-  ChecklistModello,
-  SegnalazioneManutenzione,
-  Camera,
-  Prenotazione,
-  Utente,
-  sequelize,
-} = require('../models');
-const { oppure404, vietato, richiestaNonValida, nonElaborabile } = require('../utils/errori');
-const { pagina, risultato } = require('../utils/paginazione');
-const { oggi } = require('../utils/date');
-const { crud } = require('./crud');
+const pulizieRepo = require('../repositories/pulizie.repository');
+const prenotazioniRepo = require('../repositories/prenotazioni.repository');
+const utentiRepo = require('../repositories/utenti.repository');
 const permessi = require('./permessi.service');
 const notifiche = require('./notifiche.service');
+const impostazioni = require('./impostazioni.service');
+const { PERMESSI, SQUADRE } = require('../constants/ruoli.constants');
+const { TRANSIZIONI_PULIZIA } = require('../constants/pulizie.constants');
+const { nonTrovato, vietato, richiestaNonValida, nonElaborabile } = require('../utils/errori');
+const { oggi } = require('../utils/date');
 
-const persona = (as) => ({ model: Utente, as, attributes: ['id', 'nome', 'cognome'] });
-const cameraBreve = { model: Camera, as: 'camera', attributes: ['id', 'numero', 'nome'] };
-const includeAttivita = [
-  cameraBreve,
-  persona('addetto'),
-  persona('verificatore'),
-  { model: Prenotazione, as: 'prenotazione', attributes: ['id', 'codice', 'data_partenza'] },
-];
-
-const trova = async (id) =>
-  oppure404(
-    await AttivitaPulizia.findByPk(id, { include: includeAttivita }),
-    'PULIZIA_NON_TROVATA',
-    'Attività di pulizia non trovata',
-  );
-
-const puoGestire = (contesto) => permessi.ha(contesto.ruolo, 'pulizie.gestisci');
-
-// --- checklist -------------------------------------------------------------------
-
-const checklistModelli = crud(ChecklistModello, {
-  codice: 'VOCE_CHECKLIST_NON_TROVATA',
-  messaggio: 'Voce della checklist non trovata',
-  ordine: [
-    ['tipo_pulizia', 'ASC'],
-    ['ordine', 'ASC'],
-  ],
-});
-
-/** Voci attive per un tipo di pulizia (tipo_pulizia NULL = vale per tutti). */
-async function checklistPer(tipo) {
-  const voci = await ChecklistModello.findAll({
-    where: { attiva: true, tipo_pulizia: { [Op.or]: [tipo, null] } },
-    order: [['ordine', 'ASC']],
-    raw: true,
-  });
-  return voci.map((v) => ({ voce: v.voce, fatto: false }));
+async function attivitaOppure404(id) {
+  const attivita = await pulizieRepo.trovaAttivitaPerId(id);
+  if (!attivita) {
+    throw nonTrovato('PULIZIA_NON_TROVATA', 'Attività di pulizia non trovata');
+  }
+  return attivita;
 }
 
-// --- attività ----------------------------------------------------------------------
-
-/** Elenco del giorno (default oggi). `mie=true` → solo quelle assegnate a me. */
-function elenco(query, contesto) {
-  const where = { data_prevista: query.data ?? oggi() };
-  if (query.stato) where.stato = query.stato;
-  if (query.camera_id) where.camera_id = query.camera_id;
-  if (query.assegnata_a) where.assegnata_a = query.assegnata_a;
-  if (query.mie === 'true') where.assegnata_a = contesto.utenteId;
-  return AttivitaPulizia.findAll({
-    where,
-    include: includeAttivita,
-    order: [
-      [sequelize.literal("FIELD(priorita, 'urgente', 'alta', 'normale', 'bassa')"), 'ASC'],
-      [{ model: Camera, as: 'camera' }, 'numero', 'ASC'],
-    ],
-  });
+async function voceOppure404(id) {
+  const voce = await pulizieRepo.trovaVocePerId(id);
+  if (!voce) {
+    throw nonTrovato('VOCE_CHECKLIST_NON_TROVATA', 'Voce della checklist non trovata');
+  }
+  return voce;
 }
 
-const dettaglio = trova;
+async function puoGestire(contesto) {
+  return await permessi.ha(contesto.ruolo, PERMESSI.PULIZIE_GESTISCI);
+}
 
-function avvisaAddetto(attivita) {
-  if (!attivita.assegnata_a) return;
-  notifiche.invia([attivita.assegnata_a], {
+async function avvisaAddetto(attivita) {
+  if (!attivita.assegnata_a) {
+    return;
+  }
+  await notifiche.invia([attivita.assegnata_a], {
     tipo: 'pulizia',
     priorita: attivita.priorita === 'urgente' ? 'avviso' : 'info',
     titolo: `Pulizia assegnata: camera ${attivita.camera?.numero ?? attivita.camera_id}`,
@@ -95,9 +52,91 @@ function avvisaAddetto(attivita) {
   });
 }
 
+// ─────────────────────────────────────
+// Checklist
+// ─────────────────────────────────────
+
+/** Checklist nuova (tutto da fare) per un tipo di pulizia. */
+async function checklistPer(tipo) {
+  const voci = await pulizieRepo.trovaVociAttive(tipo);
+  return voci.map((voce) => ({ voce: voce.voce, fatto: false }));
+}
+
+async function vociChecklist() {
+  return await pulizieRepo.trovaVociChecklist();
+}
+
+function valePer(voce, attivita) {
+  return voce.tipo_pulizia === null || voce.tipo_pulizia === attivita.tipo;
+}
+
+/** Nuova voce: si aggiunge anche alle attività non ancora completate. */
+async function aggiungiVoce(dati) {
+  const voce = await pulizieRepo.creaVoce({
+    voce: dati.voce,
+    tipo_pulizia: dati.tipo_pulizia ?? null,
+    ordine: dati.ordine ?? (await pulizieRepo.ultimoOrdineChecklist()) + 1,
+  });
+
+  for (const attivita of await pulizieRepo.trovaAttivitaAperte()) {
+    const checklist = attivita.checklist ?? [];
+    const presente = checklist.some((riga) => riga.voce === voce.voce);
+    if (valePer(voce, attivita) && !presente) {
+      await pulizieRepo.aggiornaAttivita(attivita.id, {
+        checklist: [...checklist, { voce: voce.voce, fatto: false }],
+      });
+    }
+  }
+  return voce;
+}
+
+/** Rinomina, riordina o disattiva una voce (vale per le attività future). */
+async function aggiornaVoce(id, dati) {
+  await voceOppure404(id);
+  await pulizieRepo.aggiornaVoce(id, {
+    voce: dati.voce,
+    tipo_pulizia: dati.tipo_pulizia,
+    ordine: dati.ordine,
+    attiva: dati.attiva,
+  });
+  return await voceOppure404(id);
+}
+
+/** Voce eliminata: sparisce anche dalle attività non ancora completate. */
+async function eliminaVoce(id) {
+  const voce = await voceOppure404(id);
+  await pulizieRepo.eliminaVoce(id);
+
+  for (const attivita of await pulizieRepo.trovaAttivitaAperte()) {
+    const checklist = attivita.checklist ?? [];
+    const senzaVoce = checklist.filter((riga) => riga.voce !== voce.voce);
+    if (senzaVoce.length !== checklist.length) {
+      await pulizieRepo.aggiornaAttivita(attivita.id, { checklist: senzaVoce });
+    }
+  }
+}
+
+// ─────────────────────────────────────
+// Attività
+// ─────────────────────────────────────
+
+/** Attività del giorno (default oggi). `mie=true` → solo quelle assegnate a me. */
+async function elenco(query, contesto) {
+  const filtri = {
+    stato: query.stato,
+    camera_id: query.camera_id,
+    assegnata_a: query.mie === 'true' ? contesto.utenteId : query.assegnata_a,
+  };
+  return await pulizieRepo.trovaAttivitaDelGiorno(query.data ?? oggi(), filtri);
+}
+
+async function dettaglio(id) {
+  return await attivitaOppure404(id);
+}
+
 async function crea(dati, contesto) {
   const tipo = dati.tipo ?? 'riassetto';
-  const nuova = await AttivitaPulizia.create({
+  const nuova = await pulizieRepo.creaAttivita({
     camera_id: dati.camera_id,
     prenotazione_id: dati.prenotazione_id ?? null,
     assegnata_a: dati.assegnata_a ?? null,
@@ -108,101 +147,124 @@ async function crea(dati, contesto) {
     checklist: await checklistPer(tipo),
     creato_da: contesto.utenteId,
   });
-  const attivita = await trova(nuova.id);
-  avvisaAddetto(attivita);
+
+  const attivita = await attivitaOppure404(nuova.id);
+  await avvisaAddetto(attivita);
   return attivita;
 }
 
-/** Pianificazione (solo gestione): assegnazione, data, priorità, note. */
-async function aggiorna(id, dati, _contesto) {
-  const attivita = await trova(id);
-  if (attivita.stato === 'verificata')
-    throw richiestaNonValida('PULIZIA_CHIUSA', 'L’attività è già stata verificata');
+/** Pianificazione: addetto, data, priorità, tipo, note. */
+async function aggiorna(id, dati) {
+  const attivita = await attivitaOppure404(id);
+  if (attivita.stato === 'verificata') {
+    throw richiestaNonValida('PULIZIA_CHIUSA', "L'attività è già stata verificata");
+  }
+
+  await pulizieRepo.aggiornaAttivita(id, {
+    assegnata_a: dati.assegnata_a,
+    data_prevista: dati.data_prevista,
+    priorita: dati.priorita,
+    tipo: dati.tipo,
+    note: dati.note,
+  });
+
+  const aggiornata = await attivitaOppure404(id);
   const riassegnata = dati.assegnata_a !== undefined && dati.assegnata_a !== attivita.assegnata_a;
-  await attivita.update(
-    Object.fromEntries(
-      ['assegnata_a', 'data_prevista', 'priorita', 'note', 'tipo']
-        .filter((c) => dati[c] !== undefined)
-        .map((c) => [c, dati[c]]),
-    ),
-  );
-  const aggiornata = await trova(id);
-  if (riassegnata) avvisaAddetto(aggiornata);
+  if (riassegnata) {
+    await avvisaAddetto(aggiornata);
+  }
   return aggiornata;
 }
 
 async function elimina(id) {
-  const attivita = await trova(id);
-  if (attivita.stato !== 'da_fare')
+  const attivita = await attivitaOppure404(id);
+  if (attivita.stato !== 'da_fare') {
     throw richiestaNonValida(
       'PULIZIA_INIZIATA',
       'Si possono eliminare solo attività non ancora iniziate',
     );
-  await attivita.destroy();
+  }
+  await pulizieRepo.eliminaAttivita(id);
 }
 
-// transizioni: stato attuale → stati ammessi, e se servono i permessi di gestione
-const TRANSIZIONI = {
-  da_fare: { in_corso: false },
-  in_corso: { completata: false, da_fare: false },
-  completata: { verificata: true, in_corso: true },
-  verificata: {},
-};
+// ─────────────────────────────────────
+// Avanzamento
+// ─────────────────────────────────────
 
-/** Spunta le voci: accetta l'intera lista dal client ma ne tiene solo i `fatto`. */
-const spunta = (attuale, nuova) =>
-  (attuale ?? []).map((v, i) => ({ ...v, fatto: Boolean(nuova?.[i]?.fatto ?? v.fatto) }));
+/** Il client manda l'intera checklist: si tengono solo le spunte. */
+function spunta(attuale, inviata) {
+  return (attuale ?? []).map((riga, indice) => ({
+    ...riga,
+    fatto: Boolean(inviata[indice]?.fatto ?? riga.fatto),
+  }));
+}
+
+function vociMancanti(checklist) {
+  return (checklist ?? []).filter((riga) => !riga.fatto).map((riga) => riga.voce);
+}
+
+function controllaTransizione(da, a, gestore) {
+  const soloGestore = TRANSIZIONI_PULIZIA[da][a];
+  if (soloGestore === undefined) {
+    throw richiestaNonValida('TRANSIZIONE_NON_VALIDA', `Un'attività ${da} non può passare a ${a}`);
+  }
+  if (soloGestore && !gestore) {
+    throw vietato('PERMESSO_NEGATO', 'Solo il responsabile delle pulizie può farlo');
+  }
+}
 
 /**
- * Avanzamento dell'attività (e/o aggiornamento della checklist).
- * @param {{ stato?: string, checklist?: { fatto: boolean }[], note?: string }} dati
+ * Avanza l'attività e/o aggiorna la checklist.
+ * dati: { stato?, checklist?: [{ fatto }], note? }
  */
 async function avanza(id, dati, contesto) {
-  const attivita = await trova(id);
+  const attivita = await attivitaOppure404(id);
   const gestore = await puoGestire(contesto);
-  const mia = attivita.assegnata_a === contesto.utenteId;
-  if (!gestore && !mia && attivita.assegnata_a)
-    throw vietato('PULIZIA_ALTRUI', 'L’attività è assegnata a un altro addetto');
+  const altrui = attivita.assegnata_a && attivita.assegnata_a !== contesto.utenteId;
+  if (altrui && !gestore) {
+    throw vietato('PULIZIA_ALTRUI', "L'attività è assegnata a un altro addetto");
+  }
 
-  const modifiche = {};
-  if (dati.checklist) modifiche.checklist = spunta(attivita.checklist, dati.checklist);
-  if (dati.note !== undefined) modifiche.note = dati.note;
+  const modifiche = { note: dati.note };
+  let checklist = attivita.checklist;
+  if (dati.checklist) {
+    checklist = spunta(attivita.checklist, dati.checklist);
+    modifiche.checklist = checklist;
+  }
 
-  if (dati.stato && dati.stato !== attivita.stato) {
-    const soloGestore = TRANSIZIONI[attivita.stato][dati.stato];
-    if (soloGestore === undefined)
-      throw richiestaNonValida(
-        'TRANSIZIONE_NON_VALIDA',
-        `Un’attività ${attivita.stato} non può passare a ${dati.stato}`,
-      );
-    if (soloGestore && !gestore)
-      throw vietato('PERMESSO_NEGATO', 'Solo il responsabile delle pulizie può farlo');
+  const cambiaStato = dati.stato && dati.stato !== attivita.stato;
+  if (cambiaStato) {
+    controllaTransizione(attivita.stato, dati.stato, gestore);
+    modifiche.stato = dati.stato;
 
     if (dati.stato === 'completata') {
-      const mancanti = (modifiche.checklist ?? attivita.checklist ?? [])
-        .filter((v) => !v.fatto)
-        .map((v) => v.voce);
-      if (mancanti.length)
+      const mancanti = vociMancanti(checklist);
+      if (mancanti.length > 0) {
         throw nonElaborabile('CHECKLIST_INCOMPLETA', 'Completa tutte le voci della checklist', {
           voci: mancanti,
         });
+      }
     }
-    if (dati.stato === 'verificata') modifiche.verificata_da = contesto.utenteId;
-    // prendere in carico un'attività libera la assegna a sé
-    if (dati.stato === 'in_corso' && !attivita.assegnata_a)
+    // Chi prende un'attività libera se la assegna.
+    if (dati.stato === 'in_corso' && !attivita.assegnata_a) {
       modifiche.assegnata_a = contesto.utenteId;
-    // ispezione respinta: si rifà da capo
-    if (attivita.stato === 'completata' && dati.stato === 'in_corso')
-      modifiche.checklist = (attivita.checklist ?? []).map((v) => ({ ...v, fatto: false }));
-    modifiche.stato = dati.stato;
+    }
+    // Ispezione respinta: si rifà da capo.
+    if (attivita.stato === 'completata' && dati.stato === 'in_corso') {
+      modifiche.checklist = checklist.map((riga) => ({ ...riga, fatto: false }));
+    }
+    if (dati.stato === 'verificata') {
+      modifiche.verificata_da = contesto.utenteId;
+    }
   }
 
-  await attivita.update(modifiche);
-  const aggiornata = await trova(id);
+  await pulizieRepo.aggiornaAttivita(id, modifiche);
+  const aggiornata = await attivitaOppure404(id);
 
-  if (modifiche.stato === 'completata' && (await ispezioneRichiesta()))
-    notifiche.aChiPuo(
-      'pulizie.gestisci',
+  const daIspezionare = await impostazioni.leggi('pulizie_richiedi_ispezione', true);
+  if (modifiche.stato === 'completata' && daIspezionare) {
+    await notifiche.aChiPuo(
+      PERMESSI.PULIZIE_GESTISCI,
       {
         tipo: 'pulizia',
         titolo: `Camera ${aggiornata.camera.numero} da ispezionare`,
@@ -210,170 +272,78 @@ async function avanza(id, dati, contesto) {
       },
       contesto.utenteId,
     );
+  }
   return aggiornata;
 }
 
-async function ispezioneRichiesta() {
-  const [riga] = await sequelize.query(
-    "SELECT fn_impostazione_numero('pulizie_richiedi_ispezione', 1) AS valore",
-    { type: sequelize.QueryTypes.SELECT },
-  );
-  return Number(riga.valore) === 1;
-}
+// ─────────────────────────────────────
+// Pianificazione automatica (job giornaliero)
+// ─────────────────────────────────────
 
 /**
- * Job giornaliero: riassetto delle camere occupate (arrivate prima di oggi e
- * che non partono oggi: la partenza la crea già il DB) e checklist alle
- * attività create dal DB che non l'hanno.
+ * Riassetto delle camere occupate (arrivate prima di oggi e che non partono
+ * oggi: la pulizia di partenza la crea già il DB) e checklist alle attività
+ * create dal DB che non l'hanno.
  */
 async function generaGiornata(giorno = oggi()) {
-  const occupate = await Prenotazione.findAll({
-    where: {
-      stato: 'in_soggiorno',
-      data_arrivo: { [Op.lt]: giorno },
-      data_partenza: { [Op.gt]: giorno },
-    },
-    attributes: ['id', 'camera_id'],
-    raw: true,
-  });
+  const inCasa = await prenotazioniRepo.trovaInCasa();
+  const occupate = inCasa.filter(
+    (prenotazione) => prenotazione.data_arrivo < giorno && prenotazione.data_partenza > giorno,
+  );
+
   const checklist = await checklistPer('riassetto');
-  await AttivitaPulizia.bulkCreate(
-    occupate.map((p) => ({
-      camera_id: p.camera_id,
-      prenotazione_id: p.id,
+  await pulizieRepo.creaAttivitaInBlocco(
+    occupate.map((prenotazione) => ({
+      camera_id: prenotazione.camera_id,
+      prenotazione_id: prenotazione.id,
       data_prevista: giorno,
       tipo: 'riassetto',
       checklist,
     })),
-    { ignoreDuplicates: true },
   );
 
-  const senzaChecklist = await AttivitaPulizia.findAll({
-    where: { data_prevista: { [Op.lte]: giorno }, stato: 'da_fare', checklist: null },
-  });
-  for (const a of senzaChecklist) await a.update({ checklist: await checklistPer(a.tipo) });
+  const senzaChecklist = await pulizieRepo.trovaSenzaChecklist(giorno);
+  for (const attivita of senzaChecklist) {
+    await pulizieRepo.aggiornaAttivita(attivita.id, {
+      checklist: await checklistPer(attivita.tipo),
+    });
+  }
   return { riassetti: occupate.length, checklist_aggiunte: senzaChecklist.length };
 }
 
-// --- manutenzione ---------------------------------------------------------------------
-
-const includeSegnalazione = [cameraBreve, persona('segnalatore'), persona('incaricato')];
-
-const trovaSegnalazione = async (id) =>
-  oppure404(
-    await SegnalazioneManutenzione.findByPk(id, { include: includeSegnalazione }),
-    'SEGNALAZIONE_NON_TROVATA',
-    'Segnalazione non trovata',
-  );
-
-/** Chi ha solo manutenzione.segnala vede le proprie (fatte o assegnate a sé). */
-async function elencoSegnalazioni(query, contesto) {
-  const p = pagina(query);
-  const where = {};
-  if (query.stato) where.stato = query.stato;
-  else if (query.aperte === 'true') where.stato = ['aperta', 'in_corso'];
-  if (query.priorita) where.priorita = query.priorita;
-  if (query.camera_id) where.camera_id = query.camera_id;
-  if (query.mie === 'true' || !(await permessi.ha(contesto.ruolo, 'manutenzione.gestisci')))
-    where[Op.or] = [{ segnalata_da: contesto.utenteId }, { assegnata_a: contesto.utenteId }];
-
-  const righe = await SegnalazioneManutenzione.findAndCountAll({
-    where,
-    include: includeSegnalazione,
-    order: [
-      [sequelize.literal("FIELD(priorita, 'urgente', 'alta', 'normale', 'bassa')"), 'ASC'],
-      ['creato_il', 'DESC'],
-    ],
-    limit: p.limit,
-    offset: p.offset,
-  });
-  return risultato(righe, p);
-}
-
-/** Cambia lo stato della camera insieme alla segnalazione (es. fuori uso per un guasto). */
-async function statoCamera(cameraId, stato, transaction) {
-  if (!stato || !cameraId) return;
-  await Camera.update({ stato }, { where: { id: cameraId }, transaction });
-}
-
-async function segnala(dati, contesto) {
-  if (dati.stato_camera && !(await permessi.ha(contesto.ruolo, 'manutenzione.gestisci')))
-    throw vietato('PERMESSO_NEGATO', 'Solo la manutenzione può mettere fuori uso una camera');
-
-  const id = await sequelize.transaction(async (transaction) => {
-    const s = await SegnalazioneManutenzione.create(
-      {
-        camera_id: dati.camera_id ?? null,
-        titolo: dati.titolo,
-        descrizione: dati.descrizione ?? null,
-        priorita: dati.priorita ?? 'normale',
-        segnalata_da: contesto.utenteId,
-      },
-      { transaction },
-    );
-    await statoCamera(dati.camera_id, dati.stato_camera, transaction);
-    return s.id;
-  });
-
-  const s = await trovaSegnalazione(id);
-  notifiche.aChiPuo(
-    'manutenzione.gestisci',
-    {
-      tipo: 'manutenzione',
-      priorita: ['alta', 'urgente'].includes(s.priorita) ? 'avviso' : 'info',
-      titolo: s.camera ? `Guasto camera ${s.camera.numero}: ${s.titolo}` : s.titolo,
-      testo: s.descrizione,
-      link: `/staff/manutenzione/${id}`,
-    },
-    contesto.utenteId,
-  );
-  return s;
-}
-
 /**
- * Presa in carico e chiusura.
- * @param {{ stato?, assegnata_a?, priorita?, note_risoluzione?, stato_camera? }} dati
+ * Assegna le attività libere del giorno agli addetti attivi, ognuna a chi
+ * ne ha meno (le urgenti per prime).
  */
-async function aggiornaSegnalazione(id, dati, contesto) {
-  const s = await trovaSegnalazione(id);
-  if (['risolta', 'annullata'].includes(s.stato) && dati.stato === undefined)
-    throw richiestaNonValida('SEGNALAZIONE_CHIUSA', 'La segnalazione è già chiusa');
+async function autoassegna(giorno = oggi()) {
+  const libere = await pulizieRepo.trovaNonAssegnate(giorno);
+  const addetti = await utentiRepo.trovaStaffAttivo(SQUADRE.housekeeping);
+  if (libere.length === 0 || addetti.length === 0) {
+    return { assegnate: 0, non_assegnate: libere.length };
+  }
 
-  const modifiche = Object.fromEntries(
-    ['stato', 'assegnata_a', 'priorita', 'note_risoluzione', 'titolo', 'descrizione']
-      .filter((c) => dati[c] !== undefined)
-      .map((c) => [c, dati[c]]),
-  );
-  if (dati.stato === 'risolta' && s.stato !== 'risolta') modifiche.risolta_il = new Date();
-  if (dati.stato && ['aperta', 'in_corso'].includes(dati.stato)) modifiche.risolta_il = null;
-  if (dati.stato === 'in_corso' && !s.assegnata_a && dati.assegnata_a === undefined)
-    modifiche.assegnata_a = contesto.utenteId;
+  const carico = new Map(addetti.map((addetto) => [addetto.id, 0]));
+  for (const riga of await pulizieRepo.contaAttivitaPerAddetto(giorno)) {
+    if (carico.has(riga.assegnata_a)) {
+      carico.set(riga.assegnata_a, riga.count);
+    }
+  }
 
-  await sequelize.transaction(async (transaction) => {
-    await s.update(modifiche, { transaction });
-    await statoCamera(s.camera_id, dati.stato_camera, transaction);
-  });
-
-  const aggiornata = await trovaSegnalazione(id);
-  if (modifiche.assegnata_a && modifiche.assegnata_a !== contesto.utenteId)
-    notifiche.invia([modifiche.assegnata_a], {
-      tipo: 'manutenzione',
-      titolo: `Ti è stata assegnata: ${aggiornata.titolo}`,
-      link: `/staff/manutenzione/${id}`,
-    });
-  if (modifiche.stato === 'risolta' && s.segnalata_da !== contesto.utenteId)
-    notifiche.invia([s.segnalata_da], {
-      tipo: 'manutenzione',
-      priorita: 'successo',
-      titolo: `Risolta: ${aggiornata.titolo}`,
-      link: `/staff/manutenzione/${id}`,
-    });
-  return aggiornata;
+  for (const attivita of libere) {
+    const [menoCarico] = [...carico.entries()].sort((a, b) => a[1] - b[1])[0];
+    carico.set(menoCarico, carico.get(menoCarico) + 1);
+    await pulizieRepo.aggiornaAttivita(attivita.id, { assegnata_a: menoCarico });
+    await avvisaAddetto({ ...attivita.toJSON(), assegnata_a: menoCarico });
+  }
+  return { assegnate: libere.length, non_assegnate: 0 };
 }
 
 module.exports = {
-  checklistModelli,
   checklistPer,
+  vociChecklist,
+  aggiungiVoce,
+  aggiornaVoce,
+  eliminaVoce,
   elenco,
   dettaglio,
   crea,
@@ -381,8 +351,5 @@ module.exports = {
   elimina,
   avanza,
   generaGiornata,
-  elencoSegnalazioni,
-  dettaglioSegnalazione: trovaSegnalazione,
-  segnala,
-  aggiornaSegnalazione,
+  autoassegna,
 };

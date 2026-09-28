@@ -34,7 +34,10 @@ function leggiSchema() {
 }
 
 const schema = leggiSchema();
-const modelli = Object.values(db.sequelize.models);
+// le VIEW (v_*) non sono tabelle: hanno i loro modelli in sola lettura
+const modelli = Object.values(db.sequelize.models).filter(
+  (m) => !m.getTableName().startsWith('v_'),
+);
 
 test('ogni tabella dello schema ha il suo modello e viceversa', () => {
   expect(modelli.map((m) => m.getTableName()).sort()).toEqual(Object.keys(schema).sort());

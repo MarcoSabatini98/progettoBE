@@ -1,176 +1,131 @@
-// Alloggiati Web (Polizia di Stato): schedine degli ospiti entro 24 ore dall'arrivo.
-// Genera il file a tracciato fisso da caricare sul portale e registra gli invii.
-// ponytail: il collegamento diretto al web service arriverà con i connettori;
-// intanto il file si carica a mano dal portale ("Invio da file").
+// src/services/alloggiati.service.js
+//
+// Alloggiati Web (Polizia di Stato): le schedine degli ospiti vanno inviate
+// entro 24 ore dall'arrivo. Qui si prepara il file a tracciato fisso da
+// caricare sul portale e si registrano gli invii.
+// ponytail: il web service diretto arriverà con i connettori; intanto il file
+// si carica a mano dal portale ("Invio da file").
 
-const { Op } = require('sequelize');
-const { Prenotazione, Ospite, InvioAlloggiati, Utente } = require('../models');
-const { oppure404, nonElaborabile } = require('../utils/errori');
-const { contaNotti, oggi, aggiungiGiorni } = require('../utils/date');
+const alloggiatiRepo = require('../repositories/alloggiati.repository');
+const ospitiRepo = require('../repositories/ospiti.repository');
 const { campiMancanti } = require('./ospiti.service');
+const { schedina } = require('./helpers/schedina-alloggiati');
+const { TIPI_CON_DOCUMENTO } = require('../constants/prenotazioni.constants');
+const { oggi, aggiungiGiorni } = require('../utils/date');
+const { nonTrovato, nonElaborabile } = require('../utils/errori');
 
-const CODICI_TIPO = {
-  ospite_singolo: '16',
-  capofamiglia: '17',
-  capogruppo: '18',
-  familiare: '19',
-  membro_gruppo: '20',
-};
-const CON_DOCUMENTO = ['ospite_singolo', 'capofamiglia', 'capogruppo'];
-const ITALIA = '100000100';
-const LUNGHEZZA = 168;
+const GIORNI_PROMEMORIA = 2;
 
-/** Maiuscolo senza accenti, tagliato e allineato a sinistra con spazi. */
-const campo = (valore, lunghezza) =>
-  String(valore ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toUpperCase()
-    .slice(0, lunghezza)
-    .padEnd(lunghezza, ' ');
-
-const dataIt = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
-
-/**
- * Una riga del tracciato (168 caratteri).
- * @param {object} o  ospite
- * @param {{ data_arrivo: string, data_partenza: string }} p  prenotazione
- * @param {string} tipo  tipo_alloggiato
- */
-function schedina(o, p, tipo) {
-  const natoInItalia = o.stato_nascita_codice === ITALIA;
-  const documento = CON_DOCUMENTO.includes(tipo);
-  const riga = [
-    campo(CODICI_TIPO[tipo], 2),
-    campo(dataIt(p.data_arrivo), 10),
-    // ponytail: il portale accetta al massimo 30 giorni, i soggiorni più lunghi si rinnovano
-    campo(String(Math.min(contaNotti(p.data_arrivo, p.data_partenza), 30)).padStart(2, '0'), 2),
-    campo(o.cognome, 50),
-    campo(o.nome, 30),
-    campo(o.sesso === 'F' ? '2' : '1', 1),
-    campo(dataIt(o.data_nascita), 10),
-    campo(natoInItalia ? o.comune_nascita_codice : '', 9),
-    campo(natoInItalia ? o.provincia_nascita : '', 2),
-    campo(o.stato_nascita_codice, 9),
-    campo(o.cittadinanza_codice, 9),
-    campo(documento ? o.tipo_documento : '', 5),
-    campo(documento ? o.numero_documento : '', 20),
-    campo(documento ? o.luogo_rilascio_codice : '', 9),
-  ].join('');
-  if (riga.length !== LUNGHEZZA) throw new Error(`Schedina di ${riga.length} caratteri`);
-  return riga;
+// Il capofamiglia o capogruppo va prima dei suoi familiari o membri.
+function ordine(tipo) {
+  return TIPI_CON_DOCUMENTO.includes(tipo) ? 0 : 1;
 }
 
-// il capofamiglia/capogruppo va prima dei suoi familiari/membri
-const ordine = (tipo) => (CON_DOCUMENTO.includes(tipo) ? 0 : 1);
-
-/** Ospiti della prenotazione con schedina, campi mancanti e ultimo invio. */
-async function daPrenotazione(prenotazioneId) {
-  const p = oppure404(
-    await Prenotazione.findByPk(prenotazioneId, {
-      attributes: ['id', 'codice', 'stato', 'data_arrivo', 'data_partenza'],
-      include: [
-        { model: Ospite, as: 'ospiti', through: { attributes: ['tipo_alloggiato'] } },
-        {
-          model: InvioAlloggiati,
-          as: 'invii_alloggiati',
-          include: [{ model: Utente, as: 'mittente', attributes: ['id', 'nome', 'cognome'] }],
-        },
-      ],
-      order: [[{ model: InvioAlloggiati, as: 'invii_alloggiati' }, 'inviato_il', 'DESC']],
-    }),
-    'PRENOTAZIONE_NON_TROVATA',
-    'Prenotazione non trovata',
-  );
-  const ospiti = p.ospiti
-    .map((o) => {
-      const tipo = o.prenotazioni_ospiti.tipo_alloggiato;
-      const mancanti = campiMancanti(o, tipo);
-      return {
-        ospite_id: o.id,
-        nome: o.nome,
-        cognome: o.cognome,
-        tipo_alloggiato: tipo,
-        campi_mancanti: mancanti,
-        schedina: mancanti.length ? null : schedina(o, p, tipo),
-        ultimo_invio: p.invii_alloggiati.find((i) => i.ospite_id === o.id) ?? null,
-      };
-    })
-    .sort((a, b) => ordine(a.tipo_alloggiato) - ordine(b.tipo_alloggiato));
+function schedaOspite(riga, prenotazione) {
+  const ospite = riga.ospite;
+  const tipo = riga.tipo_alloggiato;
+  const mancanti = campiMancanti(ospite, tipo);
+  const ultimoInvio = prenotazione.invii_alloggiati.find((invio) => invio.ospite_id === ospite.id);
   return {
-    prenotazione: { id: p.id, codice: p.codice, stato: p.stato, data_arrivo: p.data_arrivo },
-    completa: ospiti.length > 0 && ospiti.every((o) => o.schedina),
+    ospite_id: ospite.id,
+    nome: ospite.nome,
+    cognome: ospite.cognome,
+    tipo_alloggiato: tipo,
+    campi_mancanti: mancanti,
+    schedina: mancanti.length === 0 ? schedina(ospite, prenotazione, tipo) : null,
+    ultimo_invio: ultimoInvio ?? null,
+  };
+}
+
+/** Ospiti della prenotazione con schedina pronta, campi mancanti e ultimo invio. */
+async function daPrenotazione(prenotazioneId) {
+  const prenotazione = await alloggiatiRepo.trovaPrenotazioneConInvii(prenotazioneId);
+  if (!prenotazione) {
+    throw nonTrovato('PRENOTAZIONE_NON_TROVATA', 'Prenotazione non trovata');
+  }
+
+  const righe = await ospitiRepo.trovaOspitiDiPrenotazione(prenotazioneId);
+  const ospiti = righe
+    .map((riga) => schedaOspite(riga, prenotazione))
+    .sort((a, b) => ordine(a.tipo_alloggiato) - ordine(b.tipo_alloggiato));
+
+  return {
+    prenotazione: {
+      id: prenotazione.id,
+      codice: prenotazione.codice,
+      stato: prenotazione.stato,
+      data_arrivo: prenotazione.data_arrivo,
+    },
+    completa: ospiti.length > 0 && ospiti.every((ospite) => ospite.schedina),
     ospiti,
   };
 }
 
 /**
  * File da caricare sul portale per le prenotazioni indicate (righe CRLF).
- * Rifiuta se qualche ospite ha dati mancanti, indicando chi e cosa.
+ * Se qualche ospite ha dati mancanti rifiuta, indicando chi e cosa.
  */
 async function file(prenotazioniIds) {
-  const schede = await Promise.all(prenotazioniIds.map(daPrenotazione));
+  const schede = [];
+  for (const id of prenotazioniIds) {
+    schede.push(await daPrenotazione(id));
+  }
+
   const incomplete = schede
-    .filter((s) => !s.completa)
-    .map((s) => ({
-      codice: s.prenotazione.codice,
-      ospiti: s.ospiti
-        .filter((o) => !o.schedina)
-        .map((o) => ({ nome: `${o.nome} ${o.cognome}`, campi_mancanti: o.campi_mancanti })),
+    .filter((scheda) => !scheda.completa)
+    .map((scheda) => ({
+      codice: scheda.prenotazione.codice,
+      ospiti: scheda.ospiti
+        .filter((ospite) => !ospite.schedina)
+        .map((ospite) => ({
+          nome: `${ospite.nome} ${ospite.cognome}`,
+          campi_mancanti: ospite.campi_mancanti,
+        })),
     }));
-  if (incomplete.length)
+  if (incomplete.length > 0) {
     throw nonElaborabile(
       'DATI_ALLOGGIATI_INCOMPLETI',
-      'Completa i dati degli ospiti prima dell’invio',
+      "Completa i dati degli ospiti prima dell'invio",
       { prenotazioni: incomplete },
     );
+  }
+
+  const righe = schede.flatMap((scheda) => scheda.ospiti.map((ospite) => ospite.schedina));
   return {
     nome: `alloggiati_${oggi()}.txt`,
-    contenuto: `${schede.flatMap((s) => s.ospiti.map((o) => o.schedina)).join('\r\n')}\r\n`,
+    contenuto: `${righe.join('\r\n')}\r\n`,
   };
 }
 
-/** Registra l'avvenuto invio (o l'errore restituito dal portale). */
-async function registraInvio(prenotazioneId, { esito = 'inviata', messaggio }, contesto) {
+/** Registra l'invio fatto sul portale (o l'errore che ha restituito). */
+async function registraInvio(prenotazioneId, dati, contesto) {
   const { ospiti } = await daPrenotazione(prenotazioneId);
-  await InvioAlloggiati.bulkCreate(
-    ospiti.map((o) => ({
+  await alloggiatiRepo.creaInvii(
+    ospiti.map((ospite) => ({
       prenotazione_id: prenotazioneId,
-      ospite_id: o.ospite_id,
-      schedina: o.schedina ?? '',
-      esito,
-      messaggio: messaggio ?? null,
+      ospite_id: ospite.ospite_id,
+      schedina: ospite.schedina ?? '',
+      esito: dati.esito ?? 'inviata',
+      messaggio: dati.messaggio ?? null,
       inviato_da: contesto.utenteId,
     })),
   );
-  return daPrenotazione(prenotazioneId);
+  return await daPrenotazione(prenotazioneId);
 }
 
-/**
- * Promemoria per la reception: soggiorni iniziati negli ultimi 2 giorni senza
- * invio riuscito (la legge dà 24 ore dall'arrivo).
- */
+/** Promemoria per la reception: soggiorni degli ultimi 2 giorni senza invio riuscito. */
 async function daInviare() {
-  const righe = await Prenotazione.findAll({
-    where: {
-      stato: { [Op.in]: ['in_soggiorno', 'conclusa'] },
-      data_arrivo: { [Op.gte]: aggiungiGiorni(oggi(), -2) },
-    },
-    attributes: ['id', 'codice', 'data_arrivo', 'camera_id'],
-    include: [
-      {
-        model: InvioAlloggiati,
-        as: 'invii_alloggiati',
-        where: { esito: 'inviata' },
-        required: false,
-        attributes: ['id'],
-      },
-    ],
-    order: [['data_arrivo', 'ASC']],
-  });
-  return righe
-    .filter((p) => !p.invii_alloggiati.length)
-    .map(({ id, codice, data_arrivo, camera_id }) => ({ id, codice, data_arrivo, camera_id }));
+  const soggiorni = await alloggiatiRepo.trovaSoggiorniIniziatiDal(
+    aggiungiGiorni(oggi(), -GIORNI_PROMEMORIA),
+  );
+  return soggiorni
+    .filter((prenotazione) => prenotazione.invii_alloggiati.length === 0)
+    .map((prenotazione) => ({
+      id: prenotazione.id,
+      codice: prenotazione.codice,
+      data_arrivo: prenotazione.data_arrivo,
+      camera_id: prenotazione.camera_id,
+    }));
 }
 
-module.exports = { schedina, daPrenotazione, file, registraInvio, daInviare };
+module.exports = { daPrenotazione, file, registraInvio, daInviare };

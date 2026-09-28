@@ -4,7 +4,7 @@ process.env.JWT_ACCESS_SECRET = 'a'.repeat(32);
 process.env.JWT_REFRESH_SECRET = 'b'.repeat(32);
 process.env.JWT_CHAT_SECRET = 'c'.repeat(32);
 
-const { calcola } = require('../../../src/services/tariffe.service');
+const { calcola } = require('../../../src/services/helpers/calcolo-prezzo');
 
 const base = {
   arrivo: '2026-07-01',

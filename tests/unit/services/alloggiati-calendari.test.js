@@ -1,11 +1,5 @@
-process.env.DB_NAME = 'prova';
-process.env.DB_USER = 'utente';
-process.env.JWT_ACCESS_SECRET = 'a'.repeat(32);
-process.env.JWT_REFRESH_SECRET = 'b'.repeat(32);
-process.env.JWT_CHAT_SECRET = 'c'.repeat(32);
-
-const { schedina } = require('../../../src/services/alloggiati.service');
-const { leggiIcs } = require('../../../src/services/calendari.service');
+const { schedina } = require('../../../src/services/helpers/schedina-alloggiati');
+const { leggiIcs, scriviIcs } = require('../../../src/services/helpers/ical');
 
 test('schedina Alloggiati: 168 caratteri, campi al posto giusto', () => {
   const riga = schedina(
@@ -84,5 +78,22 @@ test('lettura iCal: righe spezzate, date, eventi cancellati', () => {
       titolo: 'CLOSED - Not available',
     },
     { uid: '2026-08-01-2026-08-02', inizio: '2026-08-01', fine: '2026-08-02', titolo: null },
+  ]);
+});
+
+test('scrittura iCal: eventi "Non disponibile" con date intere', () => {
+  const ics = scriviIcs('Camera 1', 'esempio.it', [
+    { uid: 'prenotazione-7', inizio: '2026-07-01', fine: '2026-07-04' },
+  ]);
+  expect(ics).toContain('UID:prenotazione-7@esempio.it');
+  expect(ics).toContain('DTSTART;VALUE=DATE:20260701');
+  expect(ics).toContain('DTEND;VALUE=DATE:20260704');
+  expect(leggiIcs(ics)).toEqual([
+    {
+      uid: 'prenotazione-7@esempio.it',
+      inizio: '2026-07-01',
+      fine: '2026-07-04',
+      titolo: 'Non disponibile',
+    },
   ]);
 });

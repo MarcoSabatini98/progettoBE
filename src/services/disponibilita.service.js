@@ -1,34 +1,43 @@
-// Ricerca camere libere e blocco temporaneo durante il pagamento online.
-// La logica di "libera" sta nel DB (fn_camera_libera, sp_disponibilita).
+// src/services/disponibilita.service.js
+//
+// Ricerca delle camere libere per il sito e blocco temporaneo della camera
+// mentre il cliente completa il pagamento online.
 
-const { Op } = require('sequelize');
-const { Camera, BloccoTemporaneo, sequelize } = require('../models');
-const { richiestaNonValida, conflitto, ErroreApp } = require('../utils/errori');
-const { oggi, aggiungiMinuti } = require('../utils/date');
-const { chiama } = require('./sql');
+const { sequelize } = require('../models');
+const disponibilitaRepo = require('../repositories/disponibilita.repository');
+const camereRepo = require('../repositories/camere.repository');
 const impostazioni = require('./impostazioni.service');
 const tariffe = require('./tariffe.service');
 const camere = require('./camere.service');
+const { richiestaNonValida, conflitto, ErroreApp } = require('../utils/errori');
+const { oggi, aggiungiMinuti } = require('../utils/date');
 
 function controllaDate(arrivo, partenza) {
-  if (arrivo < oggi())
+  if (arrivo < oggi()) {
     throw richiestaNonValida('ARRIVO_NEL_PASSATO', 'La data di arrivo è già passata');
-  if (partenza <= arrivo)
-    throw richiestaNonValida('DATE_NON_VALIDE', 'La partenza deve essere dopo l’arrivo');
+  }
+  if (partenza <= arrivo) {
+    throw richiestaNonValida('DATE_NON_VALIDE', "La partenza deve essere dopo l'arrivo");
+  }
 }
 
-/** Camere libere (righe di sp_disponibilita). */
-const camereLibere = (arrivo, partenza, ospiti, sessione, transaction) =>
-  chiama(
-    'CALL sp_disponibilita(?, ?, ?, ?)',
-    [arrivo, partenza, ospiti, sessione ?? null],
-    transaction,
-  );
+async function camereLibere(arrivo, partenza, ospiti, sessione = null, transaction = null) {
+  return await disponibilitaRepo.trovaCamereLibere(arrivo, partenza, ospiti, sessione, transaction);
+}
+
+// Quante camere libere ci sono per ogni tipologia: Map(tipologia_id → numero).
+function contaPerTipologia(libere) {
+  const conteggio = new Map();
+  for (const camera of libere) {
+    conteggio.set(camera.tipologia_id, (conteggio.get(camera.tipologia_id) ?? 0) + 1);
+  }
+  return conteggio;
+}
 
 /**
- * Ricerca per il sito: una voce per tipologia con camere libere e prezzo.
- * Se una tipologia non è prenotabile (es. soggiorno minimo) resta in elenco
- * con il motivo, così il frontend può spiegarlo.
+ * Ricerca per il sito: una voce per ogni tipologia con camere libere e il suo
+ * prezzo. Se una tipologia non è prenotabile (es. soggiorno minimo) resta in
+ * elenco con il motivo, così il frontend può spiegarlo.
  */
 async function cerca({
   arrivo,
@@ -42,20 +51,22 @@ async function cerca({
   lingua,
 }) {
   controllaDate(arrivo, partenza);
+
   const [libere, tipologie] = await Promise.all([
     camereLibere(arrivo, partenza, adulti + bambini, sessione),
     camere.tipologiePubbliche(lingua),
   ]);
-
-  const perTipologia = new Map();
-  for (const c of libere)
-    perTipologia.set(c.tipologia_id, (perTipologia.get(c.tipologia_id) ?? 0) + 1);
+  const liberePerTipologia = contaPerTipologia(libere);
 
   const risultati = [];
-  for (const tipologia of tipologie.filter((t) => perTipologia.has(t.id))) {
+  for (const tipologia of tipologie) {
+    if (!liberePerTipologia.has(tipologia.id)) {
+      continue;
+    }
+
     const voce = {
       tipologia,
-      camere_libere: perTipologia.get(tipologia.id),
+      camere_libere: liberePerTipologia.get(tipologia.id),
       preventivo: null,
       non_prenotabile: null,
     };
@@ -70,18 +81,21 @@ async function cerca({
         pianoId,
         utenteId,
       });
-    } catch (err) {
-      if (!(err instanceof ErroreApp)) throw err;
-      voce.non_prenotabile = { codice: err.codice, messaggio: err.message };
+    } catch (errore) {
+      if (!(errore instanceof ErroreApp)) {
+        throw errore;
+      }
+      voce.non_prenotabile = { codice: errore.codice, messaggio: errore.message };
     }
     risultati.push(voce);
   }
+
   return risultati;
 }
 
 /**
- * Blocca una camera per la sessione di pagamento (una sola per sessione).
- * Con tipologiaId sceglie la prima camera libera di quella tipologia.
+ * Tiene da parte una camera per la sessione di pagamento (un blocco per sessione).
+ * Senza cameraId sceglie la prima camera libera della tipologia.
  * @returns {Promise<{ sessione: string, camera_id: number, scade_il: Date }>}
  */
 async function blocca({
@@ -97,23 +111,26 @@ async function blocca({
   controllaDate(arrivo, partenza);
   const minuti = await impostazioni.leggi('blocco_checkout_minuti', 15);
 
-  return sequelize.transaction(async (t) => {
-    let id = cameraId;
-    if (!id) {
-      const libere = await camereLibere(arrivo, partenza, ospiti, sessione, t);
-      id = libere.find((c) => c.tipologia_id === Number(tipologiaId))?.camera_id;
-      if (!id)
+  return await sequelize.transaction(async (transaction) => {
+    let idCamera = cameraId;
+    if (!idCamera) {
+      const libere = await camereLibere(arrivo, partenza, ospiti, sessione, transaction);
+      const scelta = libere.find((camera) => camera.tipologia_id === Number(tipologiaId));
+      if (!scelta) {
         throw conflitto(
           'CAMERA_NON_DISPONIBILE',
           'Non ci sono più camere libere di questa tipologia per le date scelte',
         );
+      }
+      idCamera = scelta.camera_id;
     }
+
     // la riga della camera fa da lucchetto: due richieste simultanee si mettono in fila
-    await Camera.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE, attributes: ['id'] });
-    await BloccoTemporaneo.destroy({ where: { sessione }, transaction: t });
-    const blocco = await BloccoTemporaneo.create(
+    await camereRepo.bloccaCamera(idCamera, transaction);
+    await disponibilitaRepo.eliminaBloccoDiSessione(sessione, transaction);
+    const blocco = await disponibilitaRepo.creaBlocco(
       {
-        camera_id: id,
+        camera_id: idCamera,
         data_arrivo: arrivo,
         data_partenza: partenza,
         sessione,
@@ -121,15 +138,16 @@ async function blocca({
         visitatore_id: visitatoreId ?? null,
         scade_il: aggiungiMinuti(new Date(), minuti),
       },
-      { transaction: t },
+      transaction,
     );
-    return { sessione, camera_id: id, scade_il: blocco.scade_il };
+
+    return { sessione, camera_id: idCamera, scade_il: blocco.scade_il };
   });
 }
 
-/** Blocco valido della sessione, o errore se è scaduto. */
-async function bloccoDi(sessione, transaction) {
-  const blocco = await BloccoTemporaneo.findOne({ where: { sessione }, transaction });
+/** Blocco ancora valido della sessione, altrimenti errore. */
+async function bloccoDi(sessione, transaction = null) {
+  const blocco = await disponibilitaRepo.trovaBloccoPerSessione(sessione, transaction);
   if (!blocco || blocco.scade_il < new Date()) {
     throw conflitto(
       'BLOCCO_SCADUTO',
@@ -139,19 +157,21 @@ async function bloccoDi(sessione, transaction) {
   return blocco;
 }
 
-const rilascia = (sessione, transaction) =>
-  BloccoTemporaneo.destroy({ where: { sessione }, transaction });
+async function rilascia(sessione, transaction = null) {
+  await disponibilitaRepo.eliminaBloccoDiSessione(sessione, transaction);
+}
 
-/** Per il job di pulizia. */
-const eliminaBlocchiScaduti = () =>
-  BloccoTemporaneo.destroy({ where: { scade_il: { [Op.lt]: new Date() } } });
+/** Per il job di pulizia periodica. */
+async function eliminaBlocchiScaduti() {
+  return await disponibilitaRepo.eliminaBlocchiScaduti();
+}
 
 module.exports = {
-  cerca,
+  controllaDate,
   camereLibere,
+  cerca,
   blocca,
   bloccoDi,
   rilascia,
   eliminaBlocchiScaduti,
-  controllaDate,
 };

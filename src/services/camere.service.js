@@ -1,216 +1,277 @@
-// Tipologie, camere e servizi (dotazioni ed extra acquistabili).
+// src/services/camere.service.js
+//
+// Tipologie (ciò che il cliente prenota), camere fisiche e servizi
+// (dotazioni incluse ed extra acquistabili).
 
-const { Op } = require('sequelize');
-const {
-  TipologiaCamera,
-  Camera,
-  Servizio,
-  Media,
-  TipologiaCameraServizio,
-  CameraServizio,
-  sequelize,
-} = require('../models');
-const { conflitto, oppure404 } = require('../utils/errori');
+const { sequelize } = require('../models');
+const camereRepo = require('../repositories/camere.repository');
+const { nonTrovato, conflitto, richiestaNonValida } = require('../utils/errori');
+const { applicaTraduzioni } = require('../utils/traduzioni');
 const { tokenCasuale } = require('../utils/sicurezza');
-const { crud } = require('./crud');
-const contenuti = require('./contenuti.service');
+const { slugDa } = require('../utils/slug');
+const { contaNotti } = require('../utils/date');
 
-const ordineMedia = [[{ model: Media, as: 'media' }, 'ordine', 'ASC']];
+// Campi che il client può scrivere.
+function datiTipologia(dati) {
+  return {
+    nome: dati.nome,
+    slug: dati.slug,
+    descrizione: dati.descrizione,
+    prezzo_base: dati.prezzo_base,
+    ospiti_max: dati.ospiti_max,
+    superficie_mq: dati.superficie_mq,
+    letti: dati.letti,
+    ordine: dati.ordine,
+    attiva: dati.attiva,
+  };
+}
 
-const tipologie = crud(TipologiaCamera, {
-  codice: 'TIPOLOGIA_NON_TROVATA',
-  messaggio: 'Tipologia non trovata',
-  ordine: [
-    ['ordine', 'ASC'],
-    ['nome', 'ASC'],
-  ],
-  include: [
-    { model: Servizio, as: 'servizi', through: { attributes: [] } },
-    { model: Media, as: 'media' },
-  ],
-});
+function datiCamera(dati) {
+  return {
+    numero: dati.numero,
+    nome: dati.nome,
+    tipologia_id: dati.tipologia_id,
+    piano: dati.piano,
+    ospiti_max: dati.ospiti_max,
+    stato: dati.stato,
+    note: dati.note,
+  };
+}
 
-const camere = crud(Camera, {
-  codice: 'CAMERA_NON_TROVATA',
-  messaggio: 'Camera non trovata',
-  ordine: [['numero', 'ASC']],
-  include: [
-    {
-      model: TipologiaCamera,
-      as: 'tipologia',
-      attributes: ['id', 'nome', 'slug', 'ospiti_max', 'prezzo_base'],
-    },
-    { model: Servizio, as: 'servizi', through: { attributes: [] } },
-  ],
-  campi: ['numero', 'nome', 'tipologia_id', 'piano', 'ospiti_max', 'stato', 'note'],
-});
+function datiServizio(dati) {
+  return {
+    nome: dati.nome,
+    descrizione: dati.descrizione,
+    icona: dati.icona,
+    tipo: dati.tipo,
+    prezzo: dati.prezzo,
+    calcolo_prezzo: dati.calcolo_prezzo,
+    aliquota_iva: dati.aliquota_iva,
+    ordine: dati.ordine,
+    attivo: dati.attivo,
+  };
+}
 
-const servizi = crud(Servizio, {
-  codice: 'SERVIZIO_NON_TROVATO',
-  messaggio: 'Servizio non trovato',
-  ordine: [
-    ['tipo', 'ASC'],
-    ['ordine', 'ASC'],
-    ['nome', 'ASC'],
-  ],
-});
+// Tipologia per il sito: testi e dotazioni nella lingua del visitatore.
+function tipologiaTradotta(tipologia) {
+  const tradotta = applicaTraduzioni(tipologia);
+  tradotta.servizi = tradotta.servizi.map(applicaTraduzioni);
+  return tradotta;
+}
 
-const slugDa = (testo) =>
-  testo
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+// ─────────────────────────────────────
+// Tipologie
+// ─────────────────────────────────────
 
-/** Sostituisce le righe della tabella ponte (dotazioni di tipologia o camera). */
-async function impostaServizi(Ponte, chiave, id, servizioIds, transaction) {
-  await Ponte.destroy({ where: { [chiave]: id }, transaction });
-  if (servizioIds?.length) {
-    await Ponte.bulkCreate(
-      [...new Set(servizioIds)].map((servizio_id) => ({ [chiave]: id, servizio_id })),
-      {
-        transaction,
-      },
-    );
+async function elencoTipologie(filtri) {
+  return await camereRepo.trovaTipologie(filtri);
+}
+
+async function dettaglioTipologia(id) {
+  const tipologia = await camereRepo.trovaTipologiaPerId(id);
+  if (!tipologia) {
+    throw nonTrovato('TIPOLOGIA_NON_TROVATA', 'Tipologia non trovata');
   }
+  return tipologia;
 }
 
-// --- tipologie ----------------------------------------------------------------------
+async function tipologiePubbliche(lingua = 'it') {
+  const tipologie = await camereRepo.trovaTipologiePubbliche(lingua);
+  return tipologie.map(tipologiaTradotta);
+}
 
-async function creaTipologia(dati, contesto) {
-  const id = await sequelize.transaction(async (t) => {
-    const nuova = await tipologie.crea(
-      { ...dati, slug: dati.slug || slugDa(dati.nome) },
-      contesto,
-      t,
+async function tipologiaPubblica(slug, lingua = 'it') {
+  const [tipologia] = await camereRepo.trovaTipologiePubbliche(lingua, { slug });
+  if (!tipologia) {
+    throw nonTrovato('TIPOLOGIA_NON_TROVATA', 'Tipologia non trovata');
+  }
+  return tipologiaTradotta(tipologia);
+}
+
+/** dati.servizi = id delle dotazioni incluse. */
+async function creaTipologia(dati) {
+  const id = await sequelize.transaction(async (transaction) => {
+    const tipologia = await camereRepo.creaTipologia(
+      { ...datiTipologia(dati), slug: dati.slug || slugDa(dati.nome) },
+      transaction,
     );
-    await impostaServizi(TipologiaCameraServizio, 'tipologia_id', nuova.id, dati.servizi, t);
-    return nuova.id;
+    if (dati.servizi) {
+      await camereRepo.impostaServiziTipologia(tipologia.id, dati.servizi, transaction);
+    }
+    return tipologia.id;
   });
-  return tipologie.dettaglio(id);
+  return dettaglioTipologia(id);
 }
 
-async function aggiornaTipologia(id, dati, contesto) {
-  await sequelize.transaction(async (t) => {
-    await tipologie.aggiorna(id, dati, contesto, t);
-    if (dati.servizi)
-      await impostaServizi(TipologiaCameraServizio, 'tipologia_id', id, dati.servizi, t);
+async function aggiornaTipologia(id, dati) {
+  await sequelize.transaction(async (transaction) => {
+    const tipologia = await camereRepo.aggiornaTipologia(id, datiTipologia(dati), transaction);
+    if (!tipologia) {
+      throw nonTrovato('TIPOLOGIA_NON_TROVATA', 'Tipologia non trovata');
+    }
+    if (dati.servizi) {
+      await camereRepo.impostaServiziTipologia(id, dati.servizi, transaction);
+    }
   });
-  return tipologie.dettaglio(id);
+  return dettaglioTipologia(id);
 }
 
 async function eliminaTipologia(id) {
-  const inUso = await Camera.count({ where: { tipologia_id: id } });
-  if (inUso)
+  await dettaglioTipologia(id);
+
+  const camere = await camereRepo.contaCamereDiTipologia(id);
+  if (camere > 0) {
     throw conflitto(
       'TIPOLOGIA_IN_USO',
-      `Ci sono ${inUso} camere di questa tipologia: spostale prima`,
+      `Ci sono ${camere} camere di questa tipologia: spostale prima`,
     );
-  await tipologie.elimina(id);
+  }
+  await camereRepo.eliminaTipologia(id);
 }
 
-/** Tipologie per il sito: attive, tradotte, con dotazioni e immagini. */
-async function tipologiePubbliche(lingua) {
-  const righe = await TipologiaCamera.findAll({
-    where: { attiva: true },
-    include: [
-      {
-        model: Servizio,
-        as: 'servizi',
-        where: { attivo: true },
-        required: false,
-        through: { attributes: [] },
-      },
-      { model: Media, as: 'media' },
-    ],
-    order: [['ordine', 'ASC'], ...ordineMedia],
+// ─────────────────────────────────────
+// Camere
+// ─────────────────────────────────────
+
+async function elencoCamere(filtri) {
+  return await camereRepo.trovaCamere(filtri);
+}
+
+async function dettaglioCamera(id) {
+  const camera = await camereRepo.trovaCameraPerId(id);
+  if (!camera) {
+    throw nonTrovato('CAMERA_NON_TROVATA', 'Camera non trovata');
+  }
+  return camera;
+}
+
+/** dati.servizi = dotazioni in più rispetto a quelle della tipologia. */
+async function creaCamera(dati) {
+  const id = await sequelize.transaction(async (transaction) => {
+    const camera = await camereRepo.creaCamera(
+      { ...datiCamera(dati), token_ical: tokenCasuale(48) },
+      transaction,
+    );
+    if (dati.servizi) {
+      await camereRepo.impostaServiziCamera(camera.id, dati.servizi, transaction);
+    }
+    return camera.id;
   });
-  const tradotte = await contenuti.traduci('tipologia_camera', righe, lingua);
-  for (const t of tradotte) t.servizi = await contenuti.traduci('servizio', t.servizi, lingua);
-  return tradotte;
+  return dettaglioCamera(id);
 }
 
-async function tipologiaPerSlug(slug, lingua) {
-  const tipologia = (await tipologiePubbliche(lingua)).find((t) => t.slug === slug);
-  return oppure404(tipologia, 'TIPOLOGIA_NON_TROVATA', 'Tipologia non trovata');
-}
-
-// --- camere ------------------------------------------------------------------------------
-
-async function creaCamera(dati, contesto) {
-  const id = await sequelize.transaction(async (t) => {
-    const nuova = await camere.crea({ ...dati }, contesto, t);
-    await nuova.update({ token_ical: tokenCasuale(48) }, { transaction: t });
-    await impostaServizi(CameraServizio, 'camera_id', nuova.id, dati.servizi, t);
-    return nuova.id;
+async function aggiornaCamera(id, dati) {
+  await sequelize.transaction(async (transaction) => {
+    const camera = await camereRepo.aggiornaCamera(id, datiCamera(dati), transaction);
+    if (!camera) {
+      throw nonTrovato('CAMERA_NON_TROVATA', 'Camera non trovata');
+    }
+    if (dati.servizi) {
+      await camereRepo.impostaServiziCamera(id, dati.servizi, transaction);
+    }
   });
-  return camere.dettaglio(id);
-}
-
-async function aggiornaCamera(id, dati, contesto) {
-  await sequelize.transaction(async (t) => {
-    await camere.aggiorna(id, dati, contesto, t);
-    if (dati.servizi) await impostaServizi(CameraServizio, 'camera_id', id, dati.servizi, t);
-  });
-  return camere.dettaglio(id);
+  return dettaglioCamera(id);
 }
 
 /** Una camera con prenotazioni future non si elimina: va messa fuori servizio. */
 async function eliminaCamera(id) {
-  const [{ future }] = await sequelize.query(
-    `SELECT COUNT(*) AS future FROM prenotazioni
-      WHERE camera_id = ? AND stato IN ('in_attesa','confermata','in_soggiorno') AND data_partenza > UTC_DATE()`,
-    { replacements: [id], type: sequelize.QueryTypes.SELECT },
-  );
-  if (Number(future)) {
+  await dettaglioCamera(id);
+
+  const future = await camereRepo.contaPrenotazioniFuture(id);
+  if (future > 0) {
     throw conflitto(
       'CAMERA_CON_PRENOTAZIONI',
       `La camera ha ${future} prenotazioni future: spostale o cancellale prima`,
     );
   }
-  await camere.elimina(id);
+  await camereRepo.eliminaCamera(id);
 }
 
-/** Nuovo token del feed iCal (se il link è finito in mani sbagliate). */
+/** Nuovo token del feed iCal, se il vecchio link è finito in mani sbagliate. */
 async function rigeneraTokenIcal(id) {
-  const camera = await camere.dettaglio(id, { include: [] });
-  return camera.update({ token_ical: tokenCasuale(48) });
+  const camera = await camereRepo.aggiornaCamera(id, { token_ical: tokenCasuale(48) });
+  if (!camera) {
+    throw nonTrovato('CAMERA_NON_TROVATA', 'Camera non trovata');
+  }
+  return camera;
 }
 
-/** Situazione di oggi (reception e pulizie). */
-function statoCamere() {
-  return sequelize.query('SELECT * FROM v_stato_camere ORDER BY numero', {
-    type: sequelize.QueryTypes.SELECT,
-  });
+/** Situazione di oggi di ogni camera (cruscotto di reception e pulizie). */
+async function statoCamere() {
+  return await camereRepo.trovaStatoCamere();
 }
 
-// --- servizi --------------------------------------------------------------------------------
+/** Planning: camere con prenotazioni e chiusure tra dal (incluso) e al (escluso). */
+async function planning(dal, al) {
+  if (!dal || !al || al <= dal) {
+    throw richiestaNonValida('DATE_NON_VALIDE', 'Indica un periodo valido');
+  }
+  if (contaNotti(dal, al) > 92) {
+    throw richiestaNonValida('PERIODO_TROPPO_LUNGO', 'Il planning copre al massimo 3 mesi');
+  }
+  return await camereRepo.trovaPlanning(dal, al);
+}
 
-/** Extra acquistabili durante la prenotazione. */
-async function extraPubblici(lingua) {
-  const righe = await Servizio.findAll({
-    where: { tipo: 'extra', attivo: true, prezzo: { [Op.gte]: 0 } },
-    include: [{ model: Media, as: 'media' }],
-    order: [['ordine', 'ASC'], ...ordineMedia],
-  });
-  return contenuti.traduci('servizio', righe, lingua);
+// ─────────────────────────────────────
+// Servizi
+// ─────────────────────────────────────
+
+async function elencoServizi(filtri) {
+  return await camereRepo.trovaServizi(filtri);
+}
+
+async function dettaglioServizio(id) {
+  const servizio = await camereRepo.trovaServizioPerId(id);
+  if (!servizio) {
+    throw nonTrovato('SERVIZIO_NON_TROVATO', 'Servizio non trovato');
+  }
+  return servizio;
+}
+
+/** Extra acquistabili durante la prenotazione, per il sito. */
+async function extraPubblici(lingua = 'it') {
+  const servizi = await camereRepo.trovaExtraPubblici(lingua);
+  return servizi.map(applicaTraduzioni);
+}
+
+async function creaServizio(dati) {
+  const servizio = await camereRepo.creaServizio(datiServizio(dati));
+  return dettaglioServizio(servizio.id);
+}
+
+async function aggiornaServizio(id, dati) {
+  const servizio = await camereRepo.aggiornaServizio(id, datiServizio(dati));
+  if (!servizio) {
+    throw nonTrovato('SERVIZIO_NON_TROVATO', 'Servizio non trovato');
+  }
+  return dettaglioServizio(id);
+}
+
+async function eliminaServizio(id) {
+  await dettaglioServizio(id);
+  await camereRepo.eliminaServizio(id);
 }
 
 module.exports = {
-  tipologie,
-  camere,
-  servizi,
+  elencoTipologie,
+  dettaglioTipologia,
+  tipologiePubbliche,
+  tipologiaPubblica,
   creaTipologia,
   aggiornaTipologia,
   eliminaTipologia,
-  tipologiePubbliche,
-  tipologiaPerSlug,
+  elencoCamere,
+  dettaglioCamera,
   creaCamera,
   aggiornaCamera,
   eliminaCamera,
   rigeneraTokenIcal,
   statoCamere,
+  planning,
+  elencoServizi,
+  dettaglioServizio,
   extraPubblici,
-  slugDa,
+  creaServizio,
+  aggiornaServizio,
+  eliminaServizio,
 };

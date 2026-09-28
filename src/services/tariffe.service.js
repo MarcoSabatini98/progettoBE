@@ -1,377 +1,300 @@
-// Tariffe e calcolo del prezzo di un soggiorno.
+// src/services/tariffe.service.js
 //
-// Ordine (lo stesso documentato in database/schema.sql):
-//   1. per ogni notte: prezzo base della tipologia
-//        → variazione del periodo tariffario più prioritario che la copre
-//          (a parità di priorità vince quello legato alla tipologia)
-//        → variazione del piano tariffario scelto
-//   2. importo_soggiorno = somma delle notti
-//   3. − promozione migliore (non cumulabili)
-//   4. − codice sconto
-//   5. − sconto fedeltà del livello cliente (% sul risultato del punto 4)
-//   6. + pacchetto + servizi extra + tassa di soggiorno (non scontati)
-//
-// `calcola` è una funzione pura in centesimi: tutto il resto carica i dati.
+// Preventivi e gestione di tutto ciò che forma il prezzo: piani tariffari,
+// periodi (stagioni), promozioni, codici sconto, pacchetti e tassa di soggiorno.
+// Il calcolo vero e proprio è in helpers/calcolo-prezzo.js: qui si caricano e
+// si validano i dati che gli servono.
 
-const { Op } = require('sequelize');
-const {
-  TipologiaCamera,
-  PianoTariffario,
-  PeriodoTariffario,
-  Promozione,
-  CodiceSconto,
-  Pacchetto,
-  PacchettoServizio,
-  Servizio,
-  TassaSoggiorno,
-  LivelloFedelta,
-  Prenotazione,
-  sequelize,
-} = require('../models');
-const { oppure404, richiestaNonValida, nonElaborabile } = require('../utils/errori');
-const { centesimi, euro, percentualeDi } = require('../utils/denaro');
-const { notti: elencoNotti, bitGiorno, oggi } = require('../utils/date');
-const { crud } = require('./crud');
-const contenuti = require('./contenuti.service');
-const { slugDa } = require('./camere.service');
+const { sequelize } = require('../models');
+const tariffeRepo = require('../repositories/tariffe.repository');
+const camereRepo = require('../repositories/camere.repository');
+const fedeltaService = require('./fedelta.service');
+const { calcola, contaTassabili } = require('./helpers/calcolo-prezzo');
+const { nonTrovato, richiestaNonValida, nonElaborabile, conflitto } = require('../utils/errori');
+const { applicaTraduzioni } = require('../utils/traduzioni');
+const { slugDa } = require('../utils/slug');
+const { contaNotti, oggi } = require('../utils/date');
 
-// --- calcolo puro -----------------------------------------------------------------------
+// ─────────────────────────────────────
+// Campi scrivibili dal client
+// ─────────────────────────────────────
 
-/** Periodo che vince per una notte: priorità più alta, poi quello della tipologia. */
-function periodoDellaNotte(periodi, data, tipologiaId) {
-  let migliore = null;
-  for (const p of periodi) {
-    if (p.data_inizio > data || p.data_fine < data) continue;
-    if (!(p.giorni_settimana & bitGiorno(data))) continue;
-    if (p.tipologia_id != null && p.tipologia_id !== tipologiaId) continue;
-    const specifico = p.tipologia_id != null;
-    if (
-      !migliore ||
-      p.priorita > migliore.priorita ||
-      (p.priorita === migliore.priorita && specifico && migliore.tipologia_id == null)
-    ) {
-      migliore = p;
-    }
-  }
-  return migliore;
-}
-
-function applicaVariazione(cent, tipo, valore) {
-  if (tipo === 'percentuale') return cent + percentualeDi(cent, valore);
-  if (tipo === 'importo') return cent + centesimi(valore);
-  if (tipo === 'prezzo_fisso') return centesimi(valore);
-  return cent;
-}
-
-/** Sconto di una promozione (in centesimi) o 0 se non si applica. */
-function scontoPromozione(promo, { notti, ospiti, tipologiaId }) {
-  if (promo.tipologia_id != null && promo.tipologia_id !== tipologiaId) return 0;
-  if (promo.ospiti_min != null && ospiti < promo.ospiti_min) return 0;
-  if (promo.ospiti_max != null && ospiti > promo.ospiti_max) return 0;
-  if (promo.notti_min != null && notti.length < promo.notti_min) return 0;
-  const coperte = notti.filter(
-    (n) => n.data >= promo.soggiorno_dal && n.data <= promo.soggiorno_al,
-  );
-  if (!coperte.length) return 0;
-  if (promo.tipo_sconto === 'percentuale') {
-    return coperte.reduce((s, n) => s + percentualeDi(n.prezzo, promo.valore), 0);
-  }
-  return centesimi(promo.valore);
-}
-
-function totaleServizio(s, notti, ospiti) {
-  const unitario = centesimi(s.prezzo);
-  const quantita = s.quantita ?? 1;
-  const moltiplicatore = {
-    a_soggiorno: 1,
-    a_notte: notti,
-    a_persona: ospiti,
-    a_persona_notte: ospiti * notti,
-  }[s.calcolo_prezzo];
-  return unitario * quantita * moltiplicatore;
-}
-
-/**
- * Calcola il prezzo di un soggiorno. Importi in ingresso in euro (come dal DB),
- * in uscita in euro; i conti interni sono in centesimi.
- */
-function calcola(d) {
-  const ospiti = d.adulti + (d.bambini ?? 0);
-  let soggiornoMinimo = 0;
-
-  const notti = elencoNotti(d.arrivo, d.partenza).map((data) => {
-    const base = centesimi(d.prezzoBase);
-    const periodo = periodoDellaNotte(d.periodi ?? [], data, d.tipologiaId);
-    let prezzo = periodo ? applicaVariazione(base, periodo.tipo_variazione, periodo.valore) : base;
-    if (d.piano)
-      prezzo = applicaVariazione(prezzo, d.piano.tipo_variazione, d.piano.valore_variazione);
-    prezzo = Math.max(prezzo, 0);
-    if (periodo?.soggiorno_minimo)
-      soggiornoMinimo = Math.max(soggiornoMinimo, periodo.soggiorno_minimo);
-    return { data, prezzo, periodo: periodo?.nome ?? null };
-  });
-  if (!notti.length)
-    throw richiestaNonValida('DATE_NON_VALIDE', 'La partenza deve essere dopo l’arrivo');
-  if (notti.length < soggiornoMinimo) {
-    throw nonElaborabile(
-      'SOGGIORNO_MINIMO',
-      `Per queste date il soggiorno minimo è di ${soggiornoMinimo} notti`,
-      { soggiornoMinimo },
-    );
-  }
-
-  const importoSoggiorno = notti.reduce((s, n) => s + n.prezzo, 0);
-
-  // promozione migliore
-  let promozione = null;
-  let scontoPromo = 0;
-  for (const p of d.promozioni ?? []) {
-    const sconto = Math.min(
-      scontoPromozione(p, { notti, ospiti, tipologiaId: d.tipologiaId }),
-      importoSoggiorno,
-    );
-    if (sconto > scontoPromo) {
-      scontoPromo = sconto;
-      promozione = { id: p.id, nome: p.nome };
-    }
-  }
-
-  // codice sconto
-  let scontoCodice = 0;
-  const dopoPromo = importoSoggiorno - scontoPromo;
-  if (d.codice) {
-    const c = d.codice;
-    if (c.notti_min != null && notti.length < c.notti_min) {
-      throw nonElaborabile(
-        'CODICE_SCONTO_NON_APPLICABILE',
-        `Il codice vale per soggiorni di almeno ${c.notti_min} notti`,
-      );
-    }
-    if (c.importo_minimo != null && dopoPromo < centesimi(c.importo_minimo)) {
-      throw nonElaborabile(
-        'CODICE_SCONTO_NON_APPLICABILE',
-        `Il codice vale per soggiorni da almeno ${euro(centesimi(c.importo_minimo))} €`,
-      );
-    }
-    scontoCodice = Math.min(
-      c.tipo_sconto === 'percentuale' ? percentualeDi(dopoPromo, c.valore) : centesimi(c.valore),
-      dopoPromo,
-    );
-  }
-
-  // fedeltà
-  const percentualeFedelta = Number(d.percentualeFedelta ?? 0);
-  const scontoFedelta = percentualeDi(dopoPromo - scontoCodice, percentualeFedelta);
-
-  // non scontati
-  const importoPacchetto = d.pacchetto ? centesimi(d.pacchetto.prezzo) : 0;
-  const servizi = (d.servizi ?? []).map((s) => ({
-    servizio_id: s.servizio_id ?? s.id,
-    nome: s.nome,
-    quantita: s.quantita ?? 1,
-    prezzo_unitario: euro(centesimi(s.prezzo)),
-    calcolo_prezzo: s.calcolo_prezzo,
-    totale: totaleServizio(s, notti.length, ospiti),
-  }));
-  const importoServizi = servizi.reduce((s, x) => s + x.totale, 0);
-
-  let tassa = 0;
-  if (d.tassa) {
-    const nottiTassabili = d.tassa.notti_max
-      ? Math.min(notti.length, d.tassa.notti_max)
-      : notti.length;
-    tassa = centesimi(d.tassa.importo_notte) * nottiTassabili * (d.ospitiTassabili ?? ospiti);
-  }
-
-  const totale =
-    importoSoggiorno -
-    scontoPromo -
-    scontoCodice -
-    scontoFedelta +
-    importoPacchetto +
-    importoServizi +
-    tassa;
-  // l'acconto si calcola sul dovuto alla struttura: la tassa si versa al comune
-  const acconto = percentualeDi(totale - tassa, d.piano?.acconto_percentuale ?? 0);
-
+function datiPiano(dati) {
   return {
-    notti: notti.map((n) => ({ ...n, prezzo: euro(n.prezzo) })),
-    numero_notti: notti.length,
-    importo_soggiorno: euro(importoSoggiorno),
-    promozione: promozione && { ...promozione, sconto: euro(scontoPromo) },
-    sconto_promozione: euro(scontoPromo),
-    sconto_codice: euro(scontoCodice),
-    percentuale_fedelta: percentualeFedelta,
-    sconto_fedelta: euro(scontoFedelta),
-    importo_pacchetto: euro(importoPacchetto),
-    servizi: servizi.map((s) => ({ ...s, totale: euro(s.totale) })),
-    importo_servizi: euro(importoServizi),
-    tassa_soggiorno: euro(tassa),
-    totale: euro(totale),
-    acconto_richiesto: euro(acconto),
+    nome: dati.nome,
+    descrizione: dati.descrizione,
+    tipo_variazione: dati.tipo_variazione,
+    valore_variazione: dati.valore_variazione,
+    rimborsabile: dati.rimborsabile,
+    ore_cancellazione_gratuita: dati.ore_cancellazione_gratuita,
+    penale_percentuale: dati.penale_percentuale,
+    acconto_percentuale: dati.acconto_percentuale,
+    predefinito: dati.predefinito,
+    attivo: dati.attivo,
+    ordine: dati.ordine,
   };
 }
 
-// --- caricamento dati ---------------------------------------------------------------------
+function datiPeriodo(dati) {
+  return {
+    nome: dati.nome,
+    tipologia_id: dati.tipologia_id,
+    data_inizio: dati.data_inizio,
+    data_fine: dati.data_fine,
+    giorni_settimana: dati.giorni_settimana,
+    tipo_variazione: dati.tipo_variazione,
+    valore: dati.valore,
+    soggiorno_minimo: dati.soggiorno_minimo,
+    priorita: dati.priorita,
+    attivo: dati.attivo,
+  };
+}
 
+function datiPromozione(dati) {
+  return {
+    nome: dati.nome,
+    descrizione: dati.descrizione,
+    tipologia_id: dati.tipologia_id,
+    soggiorno_dal: dati.soggiorno_dal,
+    soggiorno_al: dati.soggiorno_al,
+    prenotabile_dal: dati.prenotabile_dal,
+    prenotabile_al: dati.prenotabile_al,
+    tipo_sconto: dati.tipo_sconto,
+    valore: dati.valore,
+    ospiti_min: dati.ospiti_min,
+    ospiti_max: dati.ospiti_max,
+    notti_min: dati.notti_min,
+    attiva: dati.attiva,
+  };
+}
+
+// I codici si salvano e si confrontano in maiuscolo.
+function normalizzaCodice(codice) {
+  return codice === undefined ? undefined : String(codice).trim().toUpperCase();
+}
+
+function datiCodiceSconto(dati) {
+  return {
+    codice: normalizzaCodice(dati.codice),
+    descrizione: dati.descrizione,
+    tipo_sconto: dati.tipo_sconto,
+    valore: dati.valore,
+    valido_dal: dati.valido_dal,
+    valido_al: dati.valido_al,
+    importo_minimo: dati.importo_minimo,
+    notti_min: dati.notti_min,
+    utilizzi_max: dati.utilizzi_max,
+    utilizzi_per_utente: dati.utilizzi_per_utente,
+    attivo: dati.attivo,
+  };
+}
+
+function datiPacchetto(dati) {
+  return {
+    nome: dati.nome,
+    slug: dati.slug,
+    descrizione: dati.descrizione,
+    prezzo: dati.prezzo,
+    tipologia_id: dati.tipologia_id,
+    notti_min: dati.notti_min,
+    valido_dal: dati.valido_dal,
+    valido_al: dati.valido_al,
+    attivo: dati.attivo,
+    ordine: dati.ordine,
+  };
+}
+
+function datiTassa(dati) {
+  return {
+    nome: dati.nome,
+    valida_dal: dati.valida_dal,
+    valida_al: dati.valida_al,
+    importo_notte: dati.importo_notte,
+    notti_max: dati.notti_max,
+    eta_esenzione: dati.eta_esenzione,
+    attiva: dati.attiva,
+  };
+}
+
+// ─────────────────────────────────────
+// Validazione dei dati del preventivo
+// ─────────────────────────────────────
+
+/** Piano scelto dal cliente, o il predefinito se non ne ha scelto uno. */
 async function pianoScelto(pianoId) {
-  const where = pianoId ? { id: pianoId, attivo: true } : { predefinito: true, attivo: true };
-  const piano = await PianoTariffario.findOne({ where });
-  if (pianoId && !piano)
+  if (!pianoId) {
+    return await tariffeRepo.trovaPianoPredefinito();
+  }
+  const piano = await tariffeRepo.trovaPianoAttivo(pianoId);
+  if (!piano) {
     throw richiestaNonValida('PIANO_NON_VALIDO', 'Piano tariffario non disponibile');
+  }
   return piano;
 }
 
-/** Codice sconto valido oggi per questo utente, o errore spiegato. */
+/** Codice sconto utilizzabile oggi da questo utente, altrimenti errore spiegato. */
 async function codiceValido(testo, utenteId) {
-  if (!testo) return null;
-  const c = await CodiceSconto.findOne({
-    where: { codice: String(testo).trim().toUpperCase(), attivo: true },
-  });
-  const giorno = oggi();
-  const errore = (m) => nonElaborabile('CODICE_SCONTO_NON_VALIDO', m);
-  if (!c) throw errore('Codice sconto inesistente o non più attivo');
-  if (c.valido_dal && giorno < c.valido_dal) throw errore(`Il codice è valido dal ${c.valido_dal}`);
-  if (c.valido_al && giorno > c.valido_al) throw errore('Il codice sconto è scaduto');
-  if (c.utilizzi_max != null && c.utilizzi >= c.utilizzi_max)
-    throw errore('Il codice sconto è esaurito');
-  if (c.utilizzi_per_utente != null && utenteId) {
-    const usati = await Prenotazione.count({
-      where: { codice_sconto_id: c.id, utente_id: utenteId, stato: { [Op.ne]: 'cancellata' } },
-    });
-    if (usati >= c.utilizzi_per_utente) throw errore('Hai già usato questo codice');
+  if (!testo) {
+    return null;
   }
-  return c;
-}
 
-async function percentualeFedeltaDi(utenteId) {
-  if (!utenteId) return 0;
-  const [riga] = await sequelize.query(
-    'SELECT sconto_percentuale FROM v_fedelta_utenti WHERE utente_id = ?',
-    {
-      replacements: [utenteId],
-      type: sequelize.QueryTypes.SELECT,
-    },
-  );
-  return Number(riga?.sconto_percentuale ?? 0);
+  const codice = await tariffeRepo.trovaCodiceScontoAttivo(normalizzaCodice(testo));
+  if (!codice) {
+    throw nonElaborabile('CODICE_SCONTO_NON_VALIDO', 'Codice sconto inesistente o non più attivo');
+  }
+
+  const giorno = oggi();
+  if (codice.valido_dal && giorno < codice.valido_dal) {
+    throw nonElaborabile('CODICE_SCONTO_NON_VALIDO', `Il codice è valido dal ${codice.valido_dal}`);
+  }
+  if (codice.valido_al && giorno > codice.valido_al) {
+    throw nonElaborabile('CODICE_SCONTO_NON_VALIDO', 'Il codice sconto è scaduto');
+  }
+  if (codice.utilizzi_max != null && codice.utilizzi >= codice.utilizzi_max) {
+    throw nonElaborabile('CODICE_SCONTO_NON_VALIDO', 'Il codice sconto è esaurito');
+  }
+
+  if (codice.utilizzi_per_utente != null && utenteId) {
+    const usati = await tariffeRepo.contaUtilizziUtente(codice.id, utenteId);
+    if (usati >= codice.utilizzi_per_utente) {
+      throw nonElaborabile('CODICE_SCONTO_NON_VALIDO', 'Hai già usato questo codice');
+    }
+  }
+
+  return codice;
 }
 
 async function pacchettoValido(pacchettoId, tipologiaId, arrivo, numeroNotti) {
-  if (!pacchettoId) return null;
-  const p = oppure404(
-    await Pacchetto.findOne({ where: { id: pacchettoId, attivo: true } }),
-    'PACCHETTO_NON_TROVATO',
-    'Pacchetto non disponibile',
-  );
-  const errore = (m) => nonElaborabile('PACCHETTO_NON_APPLICABILE', m);
-  if (p.tipologia_id && p.tipologia_id !== tipologiaId)
-    throw errore('Il pacchetto non è disponibile per questa camera');
-  if (p.valido_dal && arrivo < p.valido_dal)
-    throw errore(`Il pacchetto è valido dal ${p.valido_dal}`);
-  if (p.valido_al && arrivo > p.valido_al)
-    throw errore(`Il pacchetto è valido fino al ${p.valido_al}`);
-  if (p.notti_min && numeroNotti < p.notti_min)
-    throw errore(`Il pacchetto richiede almeno ${p.notti_min} notti`);
-  return p;
+  if (!pacchettoId) {
+    return null;
+  }
+
+  const pacchetto = await tariffeRepo.trovaPacchettoAttivo(pacchettoId);
+  if (!pacchetto) {
+    throw nonTrovato('PACCHETTO_NON_TROVATO', 'Pacchetto non disponibile');
+  }
+
+  if (pacchetto.tipologia_id && pacchetto.tipologia_id !== tipologiaId) {
+    throw nonElaborabile(
+      'PACCHETTO_NON_APPLICABILE',
+      'Il pacchetto non è disponibile per questa camera',
+    );
+  }
+  if (pacchetto.valido_dal && arrivo < pacchetto.valido_dal) {
+    throw nonElaborabile(
+      'PACCHETTO_NON_APPLICABILE',
+      `Il pacchetto è valido dal ${pacchetto.valido_dal}`,
+    );
+  }
+  if (pacchetto.valido_al && arrivo > pacchetto.valido_al) {
+    throw nonElaborabile(
+      'PACCHETTO_NON_APPLICABILE',
+      `Il pacchetto è valido fino al ${pacchetto.valido_al}`,
+    );
+  }
+  if (pacchetto.notti_min && numeroNotti < pacchetto.notti_min) {
+    throw nonElaborabile(
+      'PACCHETTO_NON_APPLICABILE',
+      `Il pacchetto richiede almeno ${pacchetto.notti_min} notti`,
+    );
+  }
+
+  return pacchetto;
 }
 
-/** Servizi extra richiesti: [{ servizio_id, quantita }] → righe con prezzo. */
+/** Extra richiesti [{ servizio_id, quantita }] → servizi con prezzo e quantità. */
 async function serviziRichiesti(richiesti) {
-  if (!richiesti?.length) return [];
-  const ids = richiesti.map((s) => s.servizio_id);
-  const trovati = await Servizio.findAll({
-    where: { id: ids, tipo: 'extra', attivo: true },
-    raw: true,
-  });
-  if (trovati.length !== new Set(ids).size) {
+  if (!richiesti?.length) {
+    return [];
+  }
+
+  const ids = [...new Set(richiesti.map((richiesto) => richiesto.servizio_id))];
+  const trovati = await camereRepo.trovaExtraPerIds(ids);
+  if (trovati.length !== ids.length) {
     throw richiestaNonValida(
       'SERVIZIO_NON_DISPONIBILE',
       'Uno dei servizi scelti non è disponibile',
     );
   }
-  return richiesti.map((r) => ({
-    ...trovati.find((s) => s.id === r.servizio_id),
-    quantita: r.quantita ?? 1,
-  }));
-}
 
-function tassaApplicabile(arrivo) {
-  return TassaSoggiorno.findOne({
-    where: { attiva: true, valida_dal: { [Op.lte]: arrivo }, valida_al: { [Op.gte]: arrivo } },
-    order: [['valida_dal', 'DESC']],
+  return richiesti.map((richiesto) => {
+    const servizio = trovati.find((trovato) => trovato.id === richiesto.servizio_id);
+    return { ...servizio.get({ plain: true }), quantita: richiesto.quantita ?? 1 };
   });
 }
 
-/**
- * Ospiti soggetti alla tassa. Se la tassa prevede un'esenzione per età e non
- * si conoscono le età dei bambini, i bambini si considerano esenti; al
- * check-in il conteggio si rifà con le date di nascita vere.
- */
-function contaTassabili(tassa, adulti, bambini, etaBambini) {
-  if (!tassa?.eta_esenzione) return adulti + bambini;
-  if (!etaBambini?.length) return adulti;
-  return adulti + etaBambini.filter((e) => e >= tassa.eta_esenzione).length;
+async function tassaInVigore(data) {
+  return await tariffeRepo.trovaTassaInVigore(data);
+}
+
+// ─────────────────────────────────────
+// Preventivo
+// ─────────────────────────────────────
+
+// Riprezzamento di una prenotazione già fatta: piano, codice, pacchetto e
+// sconto fedeltà sono stati accettati allora e non si ricontrollano.
+async function condizioniEsistenti(r) {
+  const [piano, codice, pacchetto] = await Promise.all([
+    r.pianoId ? tariffeRepo.trovaPianoPerId(r.pianoId) : null,
+    r.esistente.codiceScontoId
+      ? tariffeRepo.trovaCodiceScontoPerId(r.esistente.codiceScontoId)
+      : null,
+    r.pacchettoId ? tariffeRepo.trovaPacchettoPerId(r.pacchettoId) : null,
+  ]);
+  return { piano, codice, pacchetto, percentualeFedelta: r.esistente.percentualeFedelta ?? 0 };
+}
+
+async function condizioniNuove(r, tipologiaId, numeroNotti) {
+  const [piano, codice, pacchetto, percentualeFedelta] = await Promise.all([
+    pianoScelto(r.pianoId),
+    codiceValido(r.codiceSconto, r.utenteId),
+    pacchettoValido(r.pacchettoId, tipologiaId, r.arrivo, numeroNotti),
+    fedeltaService.percentualeSconto(r.utenteId),
+  ]);
+  return { piano, codice, pacchetto, percentualeFedelta };
 }
 
 /**
  * Preventivo completo di una tipologia per un soggiorno.
- * @param {{ tipologiaId: number, arrivo: string, partenza: string, adulti: number, bambini?: number,
- *   etaBambini?: number[], pianoId?: number, codiceSconto?: string, pacchettoId?: number,
- *   servizi?: {servizio_id: number, quantita?: number}[], utenteId?: number,
- *   esistente?: { codiceScontoId?: number, percentualeFedelta?: number } }} r  esistente = riprezzamento di una prenotazione:
- *   piano, codice e pacchetto già accettati non si ricontrollano
+ *
+ * @param {object} r
+ * @param {number} r.tipologiaId
+ * @param {string} r.arrivo
+ * @param {string} r.partenza
+ * @param {number} r.adulti
+ * @param {number} [r.bambini]
+ * @param {number[]} [r.etaBambini]
+ * @param {number} [r.pianoId]
+ * @param {string} [r.codiceSconto]
+ * @param {number} [r.pacchettoId]
+ * @param {{ servizio_id: number, quantita?: number }[]} [r.servizi]
+ * @param {number} [r.utenteId]
+ * @param {{ codiceScontoId?: number, percentualeFedelta?: number }} [r.esistente]
+ *        presente quando si riprezza una prenotazione esistente
  */
 async function preventivo(r) {
-  const tipologia = oppure404(
-    await TipologiaCamera.findOne({
-      where: r.esistente ? { id: r.tipologiaId } : { id: r.tipologiaId, attiva: true },
-    }),
-    'TIPOLOGIA_NON_TROVATA',
-    'Tipologia non disponibile',
-  );
-  const numeroNotti = elencoNotti(r.arrivo, r.partenza).length;
-  const giorno = oggi();
+  const tipologia = await camereRepo.trovaTipologiaSemplice(r.tipologiaId, !r.esistente);
+  if (!tipologia) {
+    throw nonTrovato('TIPOLOGIA_NON_TROVATA', 'Tipologia non disponibile');
+  }
 
-  const [piano, periodi, promozioni, codice, percentualeFedelta, pacchetto, servizi, tassa] =
-    await Promise.all([
-      r.esistente && r.pianoId ? PianoTariffario.findByPk(r.pianoId) : pianoScelto(r.pianoId),
-      PeriodoTariffario.findAll({
-        where: {
-          attivo: true,
-          data_inizio: { [Op.lt]: r.partenza },
-          data_fine: { [Op.gte]: r.arrivo },
-          [Op.or]: [{ tipologia_id: null }, { tipologia_id: tipologia.id }],
-        },
-        raw: true,
-      }),
-      Promozione.findAll({
-        where: {
-          attiva: true,
-          soggiorno_dal: { [Op.lt]: r.partenza },
-          soggiorno_al: { [Op.gte]: r.arrivo },
-          [Op.and]: [
-            { [Op.or]: [{ prenotabile_dal: null }, { prenotabile_dal: { [Op.lte]: giorno } }] },
-            { [Op.or]: [{ prenotabile_al: null }, { prenotabile_al: { [Op.gte]: giorno } }] },
-          ],
-        },
-        raw: true,
-      }),
-      r.esistente
-        ? r.esistente.codiceScontoId && CodiceSconto.findByPk(r.esistente.codiceScontoId)
-        : codiceValido(r.codiceSconto, r.utenteId),
-      r.esistente ? (r.esistente.percentualeFedelta ?? 0) : percentualeFedeltaDi(r.utenteId),
-      r.esistente && r.pacchettoId
-        ? Pacchetto.findByPk(r.pacchettoId)
-        : pacchettoValido(r.pacchettoId, tipologia.id, r.arrivo, numeroNotti),
-      serviziRichiesti(r.servizi),
-      tassaApplicabile(r.arrivo),
-    ]);
+  const bambini = r.bambini ?? 0;
+  const numeroNotti = contaNotti(r.arrivo, r.partenza);
+
+  const [condizioni, periodi, promozioni, servizi, tassa] = await Promise.all([
+    r.esistente ? condizioniEsistenti(r) : condizioniNuove(r, tipologia.id, numeroNotti),
+    tariffeRepo.trovaPeriodiDelSoggiorno(tipologia.id, r.arrivo, r.partenza),
+    tariffeRepo.trovaPromozioniDelSoggiorno(r.arrivo, r.partenza, oggi()),
+    serviziRichiesti(r.servizi),
+    tassaInVigore(r.arrivo),
+  ]);
+  const { piano, codice, pacchetto, percentualeFedelta } = condizioni;
 
   const calcolo = calcola({
     arrivo: r.arrivo,
     partenza: r.partenza,
     adulti: r.adulti,
-    bambini: r.bambini ?? 0,
+    bambini,
     tipologiaId: tipologia.id,
     prezzoBase: tipologia.prezzo_base,
     periodi,
@@ -382,7 +305,7 @@ async function preventivo(r) {
     pacchetto,
     servizi,
     tassa,
-    ospitiTassabili: contaTassabili(tassa, r.adulti, r.bambini ?? 0, r.etaBambini),
+    ospitiTassabili: contaTassabili(tassa, r.adulti, bambini, r.etaBambini),
   });
 
   return {
@@ -401,159 +324,313 @@ async function preventivo(r) {
   };
 }
 
-// --- gestione (admin) ----------------------------------------------------------------------
+// ─────────────────────────────────────
+// Piani tariffari
+// ─────────────────────────────────────
 
-const piani = crud(PianoTariffario, {
-  codice: 'PIANO_NON_TROVATO',
-  messaggio: 'Piano tariffario non trovato',
-  ordine: [
-    ['ordine', 'ASC'],
-    ['nome', 'ASC'],
-  ],
-});
-const periodi = crud(PeriodoTariffario, {
-  codice: 'PERIODO_NON_TROVATO',
-  messaggio: 'Periodo tariffario non trovato',
-  ordine: [
-    ['data_inizio', 'ASC'],
-    ['priorita', 'DESC'],
-  ],
-});
-const promozioni = crud(Promozione, {
-  codice: 'PROMOZIONE_NON_TROVATA',
-  messaggio: 'Promozione non trovata',
-  ordine: [['soggiorno_dal', 'DESC']],
-});
-const codiciSconto = crud(CodiceSconto, {
-  codice: 'CODICE_SCONTO_NON_TROVATO',
-  messaggio: 'Codice sconto non trovato',
-  ordine: [['creato_il', 'DESC']],
-  campi: [
-    'codice',
-    'descrizione',
-    'tipo_sconto',
-    'valore',
-    'valido_dal',
-    'valido_al',
-    'importo_minimo',
-    'notti_min',
-    'utilizzi_max',
-    'utilizzi_per_utente',
-    'attivo',
-  ],
-});
-const pacchetti = crud(Pacchetto, {
-  codice: 'PACCHETTO_NON_TROVATO',
-  messaggio: 'Pacchetto non trovato',
-  ordine: [
-    ['ordine', 'ASC'],
-    ['nome', 'ASC'],
-  ],
-  include: [{ model: Servizio, as: 'servizi', through: { attributes: ['quantita'] } }],
-});
-const tasse = crud(TassaSoggiorno, {
-  codice: 'TASSA_NON_TROVATA',
-  messaggio: 'Tariffa della tassa di soggiorno non trovata',
-  ordine: [['valida_dal', 'DESC']],
-});
-const livelliFedelta = crud(LivelloFedelta, {
-  codice: 'LIVELLO_NON_TROVATO',
-  messaggio: 'Livello fedeltà non trovato',
-  ordine: [['punti_minimi', 'ASC']],
-});
+async function elencoPiani(filtri) {
+  return await tariffeRepo.trovaPiani(filtri);
+}
 
-/** Il predefinito è uno solo: impostarne uno toglie il flag agli altri. */
-function salvaPiano(id, dati, contesto) {
-  return sequelize.transaction(async (t) => {
+async function dettaglioPiano(id) {
+  const piano = await tariffeRepo.trovaPianoPerId(id);
+  if (!piano) {
+    throw nonTrovato('PIANO_NON_TROVATO', 'Piano tariffario non trovato');
+  }
+  return piano;
+}
+
+// Il predefinito è uno solo: impostarne uno toglie il flag agli altri.
+async function creaPiano(dati) {
+  return await sequelize.transaction(async (transaction) => {
     if (dati.predefinito) {
-      await PianoTariffario.update(
-        { predefinito: false },
-        { where: { predefinito: true }, transaction: t },
-      );
+      await tariffeRepo.togliPredefinito(transaction);
     }
-    const piano = id
-      ? await piani.aggiorna(id, dati, contesto, t)
-      : await piani.crea(dati, contesto, t);
+    return await tariffeRepo.creaPiano(datiPiano(dati), transaction);
+  });
+}
+
+async function aggiornaPiano(id, dati) {
+  return await sequelize.transaction(async (transaction) => {
+    if (dati.predefinito) {
+      await tariffeRepo.togliPredefinito(transaction);
+    }
+    const piano = await tariffeRepo.aggiornaPiano(id, datiPiano(dati), transaction);
+    if (!piano) {
+      throw nonTrovato('PIANO_NON_TROVATO', 'Piano tariffario non trovato');
+    }
     return piano;
   });
 }
 
-// i codici si confrontano in maiuscolo (vedi codiceValido)
-const normalizzaCodice = (dati) =>
-  dati.codice ? { ...dati, codice: String(dati.codice).trim().toUpperCase() } : dati;
-const creaCodiceSconto = (dati, contesto) => codiciSconto.crea(normalizzaCodice(dati), contesto);
-const aggiornaCodiceSconto = (id, dati, contesto) =>
-  codiciSconto.aggiorna(id, normalizzaCodice(dati), contesto);
+/** Un piano già usato da prenotazioni si disattiva, non si elimina. */
+async function eliminaPiano(id) {
+  await dettaglioPiano(id);
+  const usato = await tariffeRepo.contaPrenotazioniConPiano(id);
+  if (usato > 0) {
+    throw conflitto('PIANO_IN_USO', 'Il piano è usato da alcune prenotazioni: disattivalo');
+  }
+  await tariffeRepo.eliminaPiano(id);
+}
 
-/** Pacchetto con i servizi inclusi: servizi = [{ servizio_id, quantita }]. */
-async function salvaPacchetto(id, dati, contesto) {
-  const pacchettoId = await sequelize.transaction(async (t) => {
-    const valori = !id && !dati.slug ? { ...dati, slug: slugDa(dati.nome) } : dati;
-    const p = id
-      ? await pacchetti.aggiorna(id, valori, contesto, t)
-      : await pacchetti.crea(valori, contesto, t);
+// ─────────────────────────────────────
+// Periodi tariffari
+// ─────────────────────────────────────
+
+function controllaDatePeriodo(dal, al) {
+  if (dal && al && al < dal) {
+    throw richiestaNonValida('DATE_NON_VALIDE', 'La data di fine precede quella di inizio');
+  }
+}
+
+async function elencoPeriodi(filtri) {
+  return await tariffeRepo.trovaPeriodi(filtri);
+}
+
+async function dettaglioPeriodo(id) {
+  const periodo = await tariffeRepo.trovaPeriodoPerId(id);
+  if (!periodo) {
+    throw nonTrovato('PERIODO_NON_TROVATO', 'Periodo tariffario non trovato');
+  }
+  return periodo;
+}
+
+async function creaPeriodo(dati, contesto) {
+  controllaDatePeriodo(dati.data_inizio, dati.data_fine);
+  const periodo = await tariffeRepo.creaPeriodo({
+    ...datiPeriodo(dati),
+    creato_da: contesto.utenteId,
+  });
+  return await dettaglioPeriodo(periodo.id);
+}
+
+async function aggiornaPeriodo(id, dati, contesto) {
+  controllaDatePeriodo(dati.data_inizio, dati.data_fine);
+  const periodo = await tariffeRepo.aggiornaPeriodo(id, {
+    ...datiPeriodo(dati),
+    aggiornato_da: contesto.utenteId,
+  });
+  if (!periodo) {
+    throw nonTrovato('PERIODO_NON_TROVATO', 'Periodo tariffario non trovato');
+  }
+  return await dettaglioPeriodo(id);
+}
+
+async function eliminaPeriodo(id) {
+  await dettaglioPeriodo(id);
+  await tariffeRepo.eliminaPeriodo(id);
+}
+
+// ─────────────────────────────────────
+// Promozioni
+// ─────────────────────────────────────
+
+async function elencoPromozioni(filtri) {
+  return await tariffeRepo.trovaPromozioni(filtri);
+}
+
+async function dettaglioPromozione(id) {
+  const promozione = await tariffeRepo.trovaPromozionePerId(id);
+  if (!promozione) {
+    throw nonTrovato('PROMOZIONE_NON_TROVATA', 'Promozione non trovata');
+  }
+  return promozione;
+}
+
+/** Promozioni visibili sul sito, nella lingua del visitatore. */
+async function promozioniPubbliche(lingua = 'it') {
+  const promozioni = await tariffeRepo.trovaPromozioniPubbliche(oggi(), lingua);
+  return promozioni.map(applicaTraduzioni);
+}
+
+async function creaPromozione(dati, contesto) {
+  controllaDatePeriodo(dati.soggiorno_dal, dati.soggiorno_al);
+  const promozione = await tariffeRepo.creaPromozione({
+    ...datiPromozione(dati),
+    creato_da: contesto.utenteId,
+  });
+  return await dettaglioPromozione(promozione.id);
+}
+
+async function aggiornaPromozione(id, dati) {
+  controllaDatePeriodo(dati.soggiorno_dal, dati.soggiorno_al);
+  const promozione = await tariffeRepo.aggiornaPromozione(id, datiPromozione(dati));
+  if (!promozione) {
+    throw nonTrovato('PROMOZIONE_NON_TROVATA', 'Promozione non trovata');
+  }
+  return await dettaglioPromozione(id);
+}
+
+async function eliminaPromozione(id) {
+  await dettaglioPromozione(id);
+  await tariffeRepo.eliminaPromozione(id);
+}
+
+// ─────────────────────────────────────
+// Codici sconto
+// ─────────────────────────────────────
+
+async function elencoCodiciSconto(filtri) {
+  return await tariffeRepo.trovaCodiciSconto(filtri);
+}
+
+async function dettaglioCodiceSconto(id) {
+  const codice = await tariffeRepo.trovaCodiceScontoPerId(id);
+  if (!codice) {
+    throw nonTrovato('CODICE_SCONTO_NON_TROVATO', 'Codice sconto non trovato');
+  }
+  return codice;
+}
+
+async function creaCodiceSconto(dati, contesto) {
+  const codice = await tariffeRepo.creaCodiceSconto({
+    ...datiCodiceSconto(dati),
+    creato_da: contesto.utenteId,
+  });
+  return await dettaglioCodiceSconto(codice.id);
+}
+
+async function aggiornaCodiceSconto(id, dati) {
+  const codice = await tariffeRepo.aggiornaCodiceSconto(id, datiCodiceSconto(dati));
+  if (!codice) {
+    throw nonTrovato('CODICE_SCONTO_NON_TROVATO', 'Codice sconto non trovato');
+  }
+  return await dettaglioCodiceSconto(id);
+}
+
+async function eliminaCodiceSconto(id) {
+  await dettaglioCodiceSconto(id);
+  await tariffeRepo.eliminaCodiceSconto(id);
+}
+
+// ─────────────────────────────────────
+// Pacchetti
+// ─────────────────────────────────────
+
+async function elencoPacchetti(filtri) {
+  return await tariffeRepo.trovaPacchetti(filtri);
+}
+
+async function dettaglioPacchetto(id) {
+  const pacchetto = await tariffeRepo.trovaPacchettoPerId(id);
+  if (!pacchetto) {
+    throw nonTrovato('PACCHETTO_NON_TROVATO', 'Pacchetto non trovato');
+  }
+  return pacchetto;
+}
+
+/** Pacchetti visibili sul sito, con servizi inclusi e testi tradotti. */
+async function pacchettiPubblici(lingua = 'it') {
+  const pacchetti = await tariffeRepo.trovaPacchettiPubblici(oggi(), lingua);
+  return pacchetti.map((pacchetto) => {
+    const tradotto = applicaTraduzioni(pacchetto);
+    tradotto.servizi = tradotto.servizi.map(applicaTraduzioni);
+    return tradotto;
+  });
+}
+
+/** dati.servizi = servizi inclusi [{ servizio_id, quantita }]. */
+async function creaPacchetto(dati) {
+  const id = await sequelize.transaction(async (transaction) => {
+    const pacchetto = await tariffeRepo.creaPacchetto(
+      { ...datiPacchetto(dati), slug: dati.slug || slugDa(dati.nome) },
+      transaction,
+    );
     if (dati.servizi) {
-      await PacchettoServizio.destroy({ where: { pacchetto_id: p.id }, transaction: t });
-      await PacchettoServizio.bulkCreate(
-        dati.servizi.map((s) => ({
-          pacchetto_id: p.id,
-          servizio_id: s.servizio_id,
-          quantita: s.quantita ?? 1,
-        })),
-        { transaction: t },
-      );
+      await tariffeRepo.impostaServiziPacchetto(pacchetto.id, dati.servizi, transaction);
     }
-    return p.id;
+    return pacchetto.id;
   });
-  return pacchetti.dettaglio(pacchettoId);
+  return await dettaglioPacchetto(id);
 }
 
-/** Promozioni visibili sul sito (prenotabili oggi, non ancora finite). */
-async function promozioniPubbliche(lingua) {
-  const giorno = oggi();
-  const righe = await Promozione.findAll({
-    where: {
-      attiva: true,
-      soggiorno_al: { [Op.gte]: giorno },
-      [Op.and]: [
-        { [Op.or]: [{ prenotabile_dal: null }, { prenotabile_dal: { [Op.lte]: giorno } }] },
-        { [Op.or]: [{ prenotabile_al: null }, { prenotabile_al: { [Op.gte]: giorno } }] },
-      ],
-    },
-    order: [['soggiorno_dal', 'ASC']],
+async function aggiornaPacchetto(id, dati) {
+  await sequelize.transaction(async (transaction) => {
+    const pacchetto = await tariffeRepo.aggiornaPacchetto(id, datiPacchetto(dati), transaction);
+    if (!pacchetto) {
+      throw nonTrovato('PACCHETTO_NON_TROVATO', 'Pacchetto non trovato');
+    }
+    if (dati.servizi) {
+      await tariffeRepo.impostaServiziPacchetto(id, dati.servizi, transaction);
+    }
   });
-  return contenuti.traduci('promozione', righe, lingua);
+  return await dettaglioPacchetto(id);
 }
 
-async function pacchettiPubblici(lingua) {
-  const giorno = oggi();
-  const righe = await Pacchetto.findAll({
-    where: { attivo: true, [Op.or]: [{ valido_al: null }, { valido_al: { [Op.gte]: giorno } }] },
-    include: [{ model: Servizio, as: 'servizi', through: { attributes: ['quantita'] } }],
-    order: [['ordine', 'ASC']],
-  });
-  return contenuti.traduci('pacchetto', righe, lingua);
+async function eliminaPacchetto(id) {
+  await dettaglioPacchetto(id);
+  await tariffeRepo.eliminaPacchetto(id);
+}
+
+// ─────────────────────────────────────
+// Tassa di soggiorno
+// ─────────────────────────────────────
+
+async function elencoTasse() {
+  return await tariffeRepo.trovaTasse();
+}
+
+async function dettaglioTassa(id) {
+  const tassa = await tariffeRepo.trovaTassaPerId(id);
+  if (!tassa) {
+    throw nonTrovato('TASSA_NON_TROVATA', 'Tariffa della tassa di soggiorno non trovata');
+  }
+  return tassa;
+}
+
+async function creaTassa(dati) {
+  controllaDatePeriodo(dati.valida_dal, dati.valida_al);
+  return await tariffeRepo.creaTassa(datiTassa(dati));
+}
+
+async function aggiornaTassa(id, dati) {
+  controllaDatePeriodo(dati.valida_dal, dati.valida_al);
+  const tassa = await tariffeRepo.aggiornaTassa(id, datiTassa(dati));
+  if (!tassa) {
+    throw nonTrovato('TASSA_NON_TROVATA', 'Tariffa della tassa di soggiorno non trovata');
+  }
+  return tassa;
+}
+
+async function eliminaTassa(id) {
+  await dettaglioTassa(id);
+  await tariffeRepo.eliminaTassa(id);
 }
 
 module.exports = {
-  calcola,
-  totaleServizio,
   preventivo,
   codiceValido,
-  contaTassabili,
-  tassaApplicabile,
-  percentualeFedeltaDi,
-  piani,
-  salvaPiano,
-  periodi,
-  promozioni,
-  codiciSconto,
+  tassaInVigore,
+  elencoPiani,
+  dettaglioPiano,
+  creaPiano,
+  aggiornaPiano,
+  eliminaPiano,
+  elencoPeriodi,
+  dettaglioPeriodo,
+  creaPeriodo,
+  aggiornaPeriodo,
+  eliminaPeriodo,
+  elencoPromozioni,
+  dettaglioPromozione,
+  promozioniPubbliche,
+  creaPromozione,
+  aggiornaPromozione,
+  eliminaPromozione,
+  elencoCodiciSconto,
+  dettaglioCodiceSconto,
   creaCodiceSconto,
   aggiornaCodiceSconto,
-  pacchetti,
-  salvaPacchetto,
-  tasse,
-  livelliFedelta,
-  promozioniPubbliche,
+  eliminaCodiceSconto,
+  elencoPacchetti,
+  dettaglioPacchetto,
   pacchettiPubblici,
+  creaPacchetto,
+  aggiornaPacchetto,
+  eliminaPacchetto,
+  elencoTasse,
+  dettaglioTassa,
+  creaTassa,
+  aggiornaTassa,
+  eliminaTassa,
 };

@@ -1051,7 +1051,7 @@ CREATE TABLE recensioni (
 -- assistenza : un cliente (registrato) o un visitatore (anonimo) scrive alla
 --              struttura; risponde lo staff con permesso chat.assistenza.
 -- staff      : chat interna. Chi può parlare con chi è definito in regole_chat
---              (receptionist ↔ admin; housekeeper ↔ admin e housekeeper senior).
+--              (admin con tutti, colleghi della stessa squadra tra loro).
 -- =============================================================================
 
 CREATE TABLE conversazioni (
@@ -1884,13 +1884,17 @@ INSERT INTO ruoli_permessi (ruolo, permesso) VALUES
   ('housekeeper', 'pulizie.esegui'),
   ('housekeeper', 'manutenzione.segnala');
 
--- receptionist ↔ admin; housekeeper ↔ admin e housekeeper senior.
+-- Admin con tutti; colleghi dello stesso ruolo tra loro (gruppi di squadra);
+-- housekeeper con il proprio senior. Receptionist e housekeeping non si parlano.
 INSERT INTO regole_chat (ruolo_a, ruolo_b) VALUES
   ('admin', 'admin'),
   ('admin', 'receptionist'),
   ('admin', 'housekeeper'),
   ('admin', 'housekeeper_senior'),
-  ('housekeeper', 'housekeeper_senior');
+  ('housekeeper', 'housekeeper_senior'),
+  ('receptionist', 'receptionist'),
+  ('housekeeper', 'housekeeper'),
+  ('housekeeper_senior', 'housekeeper_senior');
 
 INSERT INTO livelli_fedelta (codice, nome, punti_minimi, sconto_percentuale, colore) VALUES
   ('bronze',   'Bronze',   0,    0,  '#CD7F32'),
