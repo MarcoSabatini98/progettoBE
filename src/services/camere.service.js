@@ -63,6 +63,14 @@ function tipologiaTradotta(tipologia) {
 // Tipologie
 // ─────────────────────────────────────
 
+// Lo slug è l'indirizzo pubblico della tipologia (/tipologie/:slug): deve essere unico.
+async function controllaSlugLibero(slug, id = null) {
+  const esistente = await camereRepo.trovaTipologiaPerSlug(slug);
+  if (esistente && esistente.id !== Number(id)) {
+    throw conflitto('SLUG_GIA_USATO', `L'indirizzo "${slug}" è già usato da un'altra tipologia`);
+  }
+}
+
 async function elencoTipologie(filtri) {
   return await camereRepo.trovaTipologie(filtri);
 }
@@ -90,11 +98,11 @@ async function tipologiaPubblica(slug, lingua = 'it') {
 
 /** dati.servizi = id delle dotazioni incluse. */
 async function creaTipologia(dati) {
+  const slug = dati.slug || slugDa(dati.nome);
+  await controllaSlugLibero(slug);
+
   const id = await sequelize.transaction(async (transaction) => {
-    const tipologia = await camereRepo.creaTipologia(
-      { ...datiTipologia(dati), slug: dati.slug || slugDa(dati.nome) },
-      transaction,
-    );
+    const tipologia = await camereRepo.creaTipologia({ ...datiTipologia(dati), slug }, transaction);
     if (dati.servizi) {
       await camereRepo.impostaServiziTipologia(tipologia.id, dati.servizi, transaction);
     }
@@ -104,6 +112,10 @@ async function creaTipologia(dati) {
 }
 
 async function aggiornaTipologia(id, dati) {
+  if (dati.slug) {
+    await controllaSlugLibero(dati.slug, id);
+  }
+
   await sequelize.transaction(async (transaction) => {
     const tipologia = await camereRepo.aggiornaTipologia(id, datiTipologia(dati), transaction);
     if (!tipologia) {
@@ -160,7 +172,32 @@ async function creaCamera(dati) {
   return dettaglioCamera(id);
 }
 
+/**
+ * Le prenotazioni puntano alla camera, non alla tipologia: cambiarle tipologia
+ * con soggiorni futuri cambierebbe ciò che i clienti hanno prenotato e pagato.
+ */
+async function controllaCambioTipologia(id, tipologiaId) {
+  const camera = await camereRepo.trovaCameraConTipologia(id);
+  if (!camera) {
+    throw nonTrovato('CAMERA_NON_TROVATA', 'Camera non trovata');
+  }
+  if (camera.tipologia_id === Number(tipologiaId)) {
+    return;
+  }
+  const future = await camereRepo.contaPrenotazioniFuture(id);
+  if (future > 0) {
+    throw conflitto(
+      'CAMBIO_TIPOLOGIA_CON_PRENOTAZIONI',
+      `La camera ${camera.numero} (${camera.tipologia.nome}) ha ${future} prenotazioni future: spostale prima di cambiarne la tipologia`,
+    );
+  }
+}
+
 async function aggiornaCamera(id, dati) {
+  if (dati.tipologia_id !== undefined) {
+    await controllaCambioTipologia(id, dati.tipologia_id);
+  }
+
   await sequelize.transaction(async (transaction) => {
     const camera = await camereRepo.aggiornaCamera(id, datiCamera(dati), transaction);
     if (!camera) {

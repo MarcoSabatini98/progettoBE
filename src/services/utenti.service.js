@@ -12,7 +12,6 @@ const { sequelize } = require('../models');
 const utentiRepo = require('../repositories/utenti.repository');
 const ospitiRepo = require('../repositories/ospiti.repository');
 const prenotazioniRepo = require('../repositories/prenotazioni.repository');
-const fattureRepo = require('../repositories/fatture.repository');
 const notificheRepo = require('../repositories/notifiche.repository');
 const auth = require('./auth.service');
 const chat = require('./chat.service');
@@ -164,11 +163,6 @@ async function eliminaDocumento(utenteId, documentoId) {
   const documento = await mioDocumento(utenteId, documentoId);
   await ospitiRepo.eliminaDocumento(documento.id);
   await file.elimina(documento.percorso);
-}
-
-/** Fatture emesse per le prenotazioni del cliente (le bozze non si vedono). */
-async function mieFatture(utenteId) {
-  return await fattureRepo.trovaFattureCliente(utenteId);
 }
 
 /**
@@ -353,7 +347,6 @@ module.exports = {
   aggiungiDocumento,
   mioDocumento,
   eliminaDocumento,
-  mieFatture,
   eliminaAccount,
   elenco,
   dettaglio,
