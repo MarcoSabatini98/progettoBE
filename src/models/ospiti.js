@@ -39,6 +39,7 @@ module.exports = (sequelize) => {
       cittadinanza_codice: T.CHAR(9),
       stato_nascita_codice: T.CHAR(9),
       comune_nascita_codice: T.CHAR(9),
+      provincia_nascita: T.CHAR(2),
       tipo_documento: T.STRING(5),
       numero_documento: T.STRING(30),
       luogo_rilascio_codice: T.CHAR(9),

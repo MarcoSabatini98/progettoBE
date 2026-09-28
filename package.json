@@ -57,10 +57,15 @@
   "author": "Marco Sabatini",
   "license": "MIT",
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "dotenv": "^18.0.4",
     "joi": "^18.2.9",
+    "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.24.4",
+    "nodemailer": "^10.0.10",
+    "pdfmake": "^0.3.11",
     "sequelize": "^6.37.8",
+    "stripe": "^22.6.2",
     "winston": "^3.19.0"
   },
   "devDependencies": {
