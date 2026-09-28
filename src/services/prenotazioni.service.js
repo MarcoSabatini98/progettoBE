@@ -403,6 +403,9 @@ async function crea(dati, contesto) {
 async function generaTokenCheckin(id) {
   const token = tokenCasuale(32);
   const prenotazione = await prenotazioniRepo.trovaPrenotazionePerId(id);
+  if (!prenotazione) {
+    throw nonTrovato('PRENOTAZIONE_NON_TROVATA', 'Prenotazione non trovata');
+  }
   await transazione({ utenteId: null, ip: 'sistema' }, async (transaction) => {
     await prenotazioniRepo.aggiornaPrenotazione(
       id,
@@ -789,7 +792,7 @@ module.exports = {
   elenco,
   giornata,
   crea,
-  generaTokenCheckin,
+  linkCheckin,
   datiCheckinOnline,
   checkinOnline,
   conferma,

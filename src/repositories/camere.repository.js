@@ -90,8 +90,9 @@ const trovaTipologiaSemplice = async (id, soloAttiva = true) => {
   return await TipologiaCamera.findOne({ where });
 };
 
+// Anche tra le eliminate: lo slug resta occupato nell'indice univoco.
 const trovaTipologiaPerSlug = async (slug) => {
-  return await TipologiaCamera.findOne({ where: { slug } });
+  return await TipologiaCamera.findOne({ where: { slug }, paranoid: false });
 };
 
 const creaTipologia = async (dati, transaction = null) => {
@@ -165,7 +166,7 @@ const trovaCameraPerId = async (id, transaction = null) => {
   });
 };
 
-// Camera con la sua tipologia (prezzo base, capienza): usata da prenotazioni e tariffe.
+// Camera con la sua tipologia completa (es. per i controlli prima di cambiarla).
 const trovaCameraConTipologia = async (id, transaction = null) => {
   return await Camera.findByPk(id, {
     include: [{ model: TipologiaCamera, as: 'tipologia' }],
