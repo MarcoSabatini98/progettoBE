@@ -1,104 +1,103 @@
-// Notifiche in app (campanella). Il socket si iscrive a `eventi` e le
-// spinge in tempo reale; chi è offline le trova al prossimo accesso.
+// src/services/notifiche.service.js
+//
+// Notifiche in app (campanella). Il socket ascolta `eventi` e le spinge in
+// tempo reale; chi è offline le trova al prossimo accesso.
 
 const { EventEmitter } = require('node:events');
-const { Op } = require('sequelize');
-const { Notifica, Utente, RuoloPermesso } = require('../models');
-const { oppure404 } = require('../utils/errori');
+const logger = require('../config/logger');
+const notificheRepo = require('../repositories/notifiche.repository');
+const { nonTrovato } = require('../utils/errori');
 const { pagina, risultato } = require('../utils/paginazione');
 const { aggiungiGiorni, oggi } = require('../utils/date');
-const logger = require('../config/logger');
 
-/** 'nuova' → (notifica) per ogni notifica creata. */
+// Evento 'nuova' → (notifica) per ogni notifica creata.
 const eventi = new EventEmitter();
 
 /**
- * Crea la stessa notifica per più utenti. Non lancia: una notifica persa non
- * deve far fallire l'operazione che l'ha generata.
- * @param {number[]} utentiIds
- * @param {{ tipo: string, titolo: string, testo?: string, link?: string, priorita?: string }} dati
+ * Crea la stessa notifica per più utenti. Non lancia mai: una notifica persa
+ * non deve far fallire l'operazione che l'ha generata.
+ * dati: { tipo, titolo, testo?, link?, priorita? }
  */
-async function invia(utentiIds, { tipo, titolo, testo = null, link = null, priorita = 'info' }) {
-  const ids = [...new Set(utentiIds.filter(Boolean))];
-  if (!ids.length) return [];
+async function invia(utentiIds, dati) {
+  const destinatari = [...new Set(utentiIds.filter(Boolean))];
+  if (destinatari.length === 0) {
+    return [];
+  }
+
+  const righe = destinatari.map((utenteId) => ({
+    utente_id: utenteId,
+    tipo: dati.tipo,
+    priorita: dati.priorita ?? 'info',
+    titolo: dati.titolo,
+    testo: dati.testo ?? null,
+    link: dati.link ?? null,
+  }));
+
   try {
-    const create = await Notifica.bulkCreate(
-      ids.map((utente_id) => ({ utente_id, tipo, priorita, titolo, testo, link })),
-    );
-    for (const n of create) eventi.emit('nuova', n.toJSON());
+    const create = await notificheRepo.creaNotifiche(righe);
+    for (const notifica of create) {
+      eventi.emit('nuova', notifica.toJSON());
+    }
     return create;
-  } catch (err) {
-    logger.error('Creazione notifica fallita', { tipo, titolo, errore: err.message });
+  } catch (errore) {
+    logger.error('Creazione notifica non riuscita', {
+      tipo: dati.tipo,
+      titolo: dati.titolo,
+      errore: errore.message,
+    });
     return [];
   }
 }
 
-/** Utenti attivi il cui ruolo ha il permesso (l'admin li ha tutti). */
 async function utentiConPermesso(permesso) {
-  const ruoli = (await RuoloPermesso.findAll({ where: { permesso }, raw: true })).map(
-    (r) => r.ruolo,
-  );
-  const utenti = await Utente.findAll({
-    where: { ruolo: [...ruoli, 'admin'], attivo: true },
-    attributes: ['id'],
-    raw: true,
-  });
-  return utenti.map((u) => u.id);
+  return await notificheRepo.trovaIdUtentiConPermesso(permesso);
 }
 
-/** Notifica a tutto lo staff che ha il permesso, escluso chi ha generato l'evento. */
+/** Notifica a tutto lo staff con il permesso, tranne chi ha generato l'evento. */
 async function aChiPuo(permesso, dati, esclusoId) {
-  const ids = (await utentiConPermesso(permesso)).filter((id) => id !== esclusoId);
-  return invia(ids, dati);
+  const utenti = await utentiConPermesso(permesso);
+  const destinatari = utenti.filter((id) => id !== esclusoId);
+  return await invia(destinatari, dati);
+}
+
+async function nonLette(utenteId) {
+  return await notificheRepo.contaNonLette(utenteId);
 }
 
 async function elenco(utenteId, query = {}) {
   const p = pagina(query);
-  const where = { utente_id: utenteId };
-  if (query.non_lette === 'true' || query.non_lette === true) where.letta_il = null;
-  const righe = await Notifica.findAndCountAll({
-    where,
-    order: [['creato_il', 'DESC']],
-    limit: p.limit,
-    offset: p.offset,
-  });
-  return { ...risultato(righe, p), non_lette: await nonLette(utenteId) };
+  const soloNonLette = query.non_lette === true || query.non_lette === 'true';
+  const trovate = await notificheRepo.trovaNotificheUtente(utenteId, soloNonLette, p);
+  return { ...risultato(trovate, p), non_lette: await nonLette(utenteId) };
 }
 
-function nonLette(utenteId) {
-  return Notifica.count({ where: { utente_id: utenteId, letta_il: null } });
+async function notificaDiUtente(id, utenteId) {
+  const notifica = await notificheRepo.trovaNotificaDiUtente(id, utenteId);
+  if (!notifica) {
+    throw nonTrovato('NOTIFICA_NON_TROVATA', 'Notifica non trovata');
+  }
+  return notifica;
 }
-
-const mia = async (id, utenteId) =>
-  oppure404(
-    await Notifica.findOne({ where: { id, utente_id: utenteId } }),
-    'NOTIFICA_NON_TROVATA',
-    'Notifica non trovata',
-  );
 
 async function segnaLetta(id, utenteId) {
-  const n = await mia(id, utenteId);
-  return n.letta_il ? n : n.update({ letta_il: new Date() });
+  await notificaDiUtente(id, utenteId);
+  await notificheRepo.segnaLetta(id);
+  return await notificaDiUtente(id, utenteId);
 }
 
 async function segnaTutteLette(utenteId) {
-  const [aggiornate] = await Notifica.update(
-    { letta_il: new Date() },
-    { where: { utente_id: utenteId, letta_il: null } },
-  );
+  const aggiornate = await notificheRepo.segnaTutteLette(utenteId);
   return { aggiornate };
 }
 
 async function elimina(id, utenteId) {
-  await (await mia(id, utenteId)).destroy();
+  await notificaDiUtente(id, utenteId);
+  await notificheRepo.eliminaNotifica(id);
 }
 
-/** Job: via le notifiche lette più vecchie di `giorni`. */
-function eliminaVecchie(giorni = 90) {
-  return Notifica.destroy({
-    where: { letta_il: { [Op.lt]: aggiungiGiorni(oggi(), -giorni) } },
-    force: true,
-  });
+/** Job: via le notifiche lette da più di `giorni` giorni. */
+async function eliminaVecchie(giorni = 90) {
+  return await notificheRepo.eliminaLettePrimaDel(aggiungiGiorni(oggi(), -giorni));
 }
 
 module.exports = {

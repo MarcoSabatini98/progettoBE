@@ -1,4 +1,4 @@
-const { totali, righeDaLordi } = require('../../../src/services/fattura-pa');
+const { totali, righeDaLordi } = require('../../../src/services/helpers/fattura-pa');
 
 test('fattura da prezzi IVA inclusa: il totale è esattamente il lordo incassato', () => {
   const { righe, imposta } = righeDaLordi([

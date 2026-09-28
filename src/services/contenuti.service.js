@@ -1,86 +1,77 @@
+// src/services/contenuti.service.js
+//
 // Contenuti del sito: traduzioni, media, FAQ, documenti legali, eventi speciali.
-// Il testo italiano sta nella tabella originale; le altre lingue in traduzioni.
+// Il testo italiano sta nella tabella originale, le altre lingue in traduzioni.
 
-const { Op } = require('sequelize');
-const { Traduzione, Media, Faq, DocumentoLegale, EventoSpeciale, sequelize } = require('../models');
-const { oppure404, richiestaNonValida } = require('../utils/errori');
-const file = require('../utils/file');
+const { sequelize } = require('../models');
+const contenutiRepo = require('../repositories/contenuti.repository');
 const impostazioni = require('./impostazioni.service');
-const { crud } = require('./crud');
+const { nonTrovato, richiestaNonValida } = require('../utils/errori');
+const { applicaTraduzioni } = require('../utils/traduzioni');
+const file = require('../utils/file');
 
-// --- traduzioni ---------------------------------------------------------------------
+// ─────────────────────────────────────
+// Traduzioni (area admin)
+// ─────────────────────────────────────
+
+/** Tutte le traduzioni di un record: { en: { nome, descrizione }, de: { ... } }. */
+async function traduzioniDi(entita, entitaId) {
+  const righe = await contenutiRepo.trovaTraduzioni(entita, entitaId);
+
+  const perLingua = {};
+  for (const riga of righe) {
+    perLingua[riga.lingua] = perLingua[riga.lingua] ?? {};
+    perLingua[riga.lingua][riga.campo] = riga.testo;
+  }
+  return perLingua;
+}
 
 /**
- * Sostituisce nei record i campi tradotti nella lingua richiesta.
- * Se manca la traduzione resta l'italiano. Accetta istanze o oggetti.
- * @returns {Promise<object[]>} oggetti semplici
+ * Salva le traduzioni di un record: { en: { nome: '...' } }.
+ * Un testo vuoto elimina la traduzione di quel campo.
  */
-async function traduci(entita, record, lingua) {
-  const lista = (Array.isArray(record) ? record : [record])
-    .filter(Boolean)
-    .map((r) => (r.toJSON ? r.toJSON() : r));
-  if (!lingua || lingua === 'it' || !lista.length) return Array.isArray(record) ? lista : lista[0];
-
-  const traduzioni = await Traduzione.findAll({
-    where: { entita, lingua, entita_id: { [Op.in]: lista.map((r) => r.id) } },
-    raw: true,
-  });
-  for (const t of traduzioni) {
-    const r = lista.find((x) => x.id === t.entita_id);
-    if (r && t.campo in r) r[t.campo] = t.testo;
-  }
-  return Array.isArray(record) ? lista : lista[0];
-}
-
-/** Tutte le traduzioni di un record: { en: { nome, descrizione }, de: {...} }. */
-async function traduzioniDi(entita, entitaId) {
-  const righe = await Traduzione.findAll({ where: { entita, entita_id: entitaId }, raw: true });
-  const esito = {};
-  for (const r of righe) (esito[r.lingua] ??= {})[r.campo] = r.testo;
-  return esito;
-}
-
-/** Salva le traduzioni di un record: { en: { nome: '...' } }. Testo vuoto = elimina. */
 async function salvaTraduzioni(entita, entitaId, perLingua) {
-  const attive = await impostazioni.leggi('lingue_attive', ['it']);
-  const nonAttive = Object.keys(perLingua).filter((l) => l === 'it' || !attive.includes(l));
-  if (nonAttive.length) {
+  const lingueAttive = await impostazioni.leggi('lingue_attive', ['it']);
+  const nonAmmesse = Object.keys(perLingua).filter(
+    (lingua) => lingua === 'it' || !lingueAttive.includes(lingua),
+  );
+  if (nonAmmesse.length > 0) {
     throw richiestaNonValida(
       'LINGUA_NON_ATTIVA',
-      `Lingue non attive o non traducibili: ${nonAttive.join(', ')}`,
+      `Lingue non attive o non traducibili: ${nonAmmesse.join(', ')}`,
     );
   }
+
   await sequelize.transaction(async (transaction) => {
     for (const [lingua, campi] of Object.entries(perLingua)) {
       for (const [campo, testo] of Object.entries(campi)) {
         const chiave = { entita, entita_id: entitaId, campo, lingua };
-        if (!testo) await Traduzione.destroy({ where: chiave, transaction });
-        else await Traduzione.upsert({ ...chiave, testo }, { transaction });
+        if (testo) {
+          await contenutiRepo.salvaTraduzione(chiave, testo, transaction);
+        } else {
+          await contenutiRepo.eliminaTraduzione(chiave, transaction);
+        }
       }
     }
   });
+
   return traduzioniDi(entita, entitaId);
 }
 
-async function eliminaTraduzioni(entita, entitaId, transaction) {
-  await Traduzione.destroy({ where: { entita, entita_id: entitaId }, transaction });
+// ─────────────────────────────────────
+// Media
+// ─────────────────────────────────────
+
+async function elencoMedia(entita, entitaId = null) {
+  return await contenutiRepo.trovaMedia(entita, entitaId);
 }
 
-// --- media -------------------------------------------------------------------------------
-
-function elencoMedia(entita, entitaId = null) {
-  return Media.findAll({
-    where: { entita, entita_id: entitaId },
-    order: [
-      ['ordine', 'ASC'],
-      ['id', 'ASC'],
-    ],
-  });
-}
-
-/** Registra un'immagine caricata da multer. */
-function aggiungiMedia({ entita, entitaId = null, testoAlternativo = '', ordine = 0 }, caricato) {
-  return Media.create({
+/** Registra un'immagine appena salvata su disco da multer. */
+async function aggiungiMedia(
+  { entita, entitaId = null, testoAlternativo = '', ordine = 0 },
+  caricato,
+) {
+  return await contenutiRepo.creaMedia({
     entita,
     entita_id: entitaId,
     percorso: file.percorsoRelativo(caricato.path),
@@ -91,122 +82,257 @@ function aggiungiMedia({ entita, entitaId = null, testoAlternativo = '', ordine 
   });
 }
 
-async function aggiornaMedia(id, { testo_alternativo, ordine }) {
-  const media = oppure404(await Media.findByPk(id), 'MEDIA_NON_TROVATO', 'Immagine non trovata');
-  return media.update({ testo_alternativo, ordine });
+async function aggiornaMedia(id, dati) {
+  const media = await contenutiRepo.aggiornaMedia(id, {
+    testo_alternativo: dati.testo_alternativo,
+    ordine: dati.ordine,
+  });
+  if (!media) {
+    throw nonTrovato('MEDIA_NON_TROVATO', 'Immagine non trovata');
+  }
+  return media;
 }
 
-/** Riordina: ids nell'ordine voluto. */
+/** Riordina le immagini: ids nell'ordine voluto. */
 async function riordinaMedia(ids) {
   await sequelize.transaction(async (transaction) => {
-    for (const [ordine, id] of ids.entries())
-      await Media.update({ ordine }, { where: { id }, transaction });
+    for (const [ordine, id] of ids.entries()) {
+      await contenutiRepo.aggiornaMedia(id, { ordine }, transaction);
+    }
   });
 }
 
 async function eliminaMedia(id) {
-  const media = oppure404(await Media.findByPk(id), 'MEDIA_NON_TROVATO', 'Immagine non trovata');
-  await media.destroy();
+  const media = await contenutiRepo.trovaMediaPerId(id);
+  if (!media) {
+    throw nonTrovato('MEDIA_NON_TROVATO', 'Immagine non trovata');
+  }
+  await contenutiRepo.eliminaMedia(id);
   await file.elimina(media.percorso);
 }
 
-/** Elimina tutti i media di un'entità (quando si elimina la camera, il pacchetto...). */
-async function eliminaMediaDi(entita, entitaId) {
-  const lista = await Media.findAll({ where: { entita, entita_id: entitaId } });
-  await Media.destroy({ where: { entita, entita_id: entitaId } });
-  await Promise.all(lista.map((m) => file.elimina(m.percorso)));
-}
+/** Elimina immagini e traduzioni di un'entità (camera, pacchetto...) eliminata. */
+async function eliminaContenutiDi(entita, entitaId) {
+  const immagini = await contenutiRepo.trovaMedia(entita, entitaId);
 
-// --- FAQ -----------------------------------------------------------------------------------
-
-const faq = crud(Faq, {
-  codice: 'FAQ_NON_TROVATA',
-  messaggio: 'FAQ non trovata',
-  ordine: [
-    ['categoria', 'ASC'],
-    ['ordine', 'ASC'],
-    ['id', 'ASC'],
-  ],
-});
-
-async function faqPubbliche(lingua) {
-  const righe = await Faq.findAll({
-    where: { pubblicata: true },
-    order: [
-      ['categoria', 'ASC'],
-      ['ordine', 'ASC'],
-    ],
+  await sequelize.transaction(async (transaction) => {
+    await contenutiRepo.eliminaMediaDi(entita, entitaId, transaction);
+    await contenutiRepo.eliminaTraduzioniDi(entita, entitaId, transaction);
   });
-  return traduci('faq', righe, lingua);
+
+  for (const media of immagini) {
+    await file.elimina(media.percorso);
+  }
 }
 
-// --- documenti legali ----------------------------------------------------------------------
+// ─────────────────────────────────────
+// FAQ
+// ─────────────────────────────────────
 
-const documentiLegali = crud(DocumentoLegale, {
-  codice: 'DOCUMENTO_LEGALE_NON_TROVATO',
-  messaggio: 'Documento legale non trovato',
-  ordine: [
-    ['tipo', 'ASC'],
-    ['lingua', 'ASC'],
-    ['creato_il', 'DESC'],
-  ],
-});
+async function elencoFaq(filtri) {
+  return await contenutiRepo.trovaFaq(filtri);
+}
 
-/** Versione pubblicata più recente, nella lingua richiesta o in italiano. */
+async function faqPubbliche(lingua = 'it') {
+  const righe = await contenutiRepo.trovaFaqPubbliche(lingua);
+  return righe.map(applicaTraduzioni);
+}
+
+async function dettaglioFaq(id) {
+  const faq = await contenutiRepo.trovaFaqPerId(id);
+  if (!faq) {
+    throw nonTrovato('FAQ_NON_TROVATA', 'FAQ non trovata');
+  }
+  return faq;
+}
+
+async function creaFaq(dati, contesto) {
+  const faq = await contenutiRepo.creaFaq({
+    domanda: dati.domanda,
+    risposta: dati.risposta,
+    categoria: dati.categoria,
+    ordine: dati.ordine,
+    pubblicata: dati.pubblicata,
+    creato_da: contesto.utenteId,
+    aggiornato_da: contesto.utenteId,
+  });
+  return dettaglioFaq(faq.id);
+}
+
+async function aggiornaFaq(id, dati, contesto) {
+  const faq = await contenutiRepo.aggiornaFaq(id, {
+    domanda: dati.domanda,
+    risposta: dati.risposta,
+    categoria: dati.categoria,
+    ordine: dati.ordine,
+    pubblicata: dati.pubblicata,
+    aggiornato_da: contesto.utenteId,
+  });
+  if (!faq) {
+    throw nonTrovato('FAQ_NON_TROVATA', 'FAQ non trovata');
+  }
+  return dettaglioFaq(id);
+}
+
+async function eliminaFaq(id) {
+  await dettaglioFaq(id);
+  await sequelize.transaction(async (transaction) => {
+    await contenutiRepo.eliminaTraduzioniDi('faq', id, transaction);
+    await contenutiRepo.eliminaFaq(id, transaction);
+  });
+}
+
+// ─────────────────────────────────────
+// Documenti legali (privacy, termini, cookie)
+// Una versione pubblicata non si tocca più: se ne crea una nuova.
+// ─────────────────────────────────────
+
+async function elencoDocumentiLegali(filtri) {
+  return await contenutiRepo.trovaDocumentiLegali(filtri);
+}
+
+async function dettaglioDocumentoLegale(id) {
+  const documento = await contenutiRepo.trovaDocumentoLegalePerId(id);
+  if (!documento) {
+    throw nonTrovato('DOCUMENTO_LEGALE_NON_TROVATO', 'Documento legale non trovato');
+  }
+  return documento;
+}
+
+/** Versione in vigore nella lingua richiesta; se manca, quella italiana. */
 async function documentoLegaleVigente(tipo, lingua = 'it') {
-  const cerca = (l) =>
-    DocumentoLegale.findOne({
-      where: { tipo, lingua: l, pubblicato_il: { [Op.ne]: null, [Op.lte]: new Date() } },
-      order: [['pubblicato_il', 'DESC']],
-    });
-  return oppure404(
-    (await cerca(lingua)) ?? (await cerca('it')),
-    'DOCUMENTO_LEGALE_NON_TROVATO',
-    'Documento non ancora pubblicato',
-  );
+  let documento = await contenutiRepo.trovaDocumentoLegaleVigente(tipo, lingua);
+  if (!documento && lingua !== 'it') {
+    documento = await contenutiRepo.trovaDocumentoLegaleVigente(tipo, 'it');
+  }
+  if (!documento) {
+    throw nonTrovato('DOCUMENTO_LEGALE_NON_TROVATO', 'Documento non ancora pubblicato');
+  }
+  return documento;
 }
 
-async function pubblicaDocumentoLegale(id) {
-  const doc = await documentiLegali.dettaglio(id);
-  if (doc.pubblicato_il)
+async function creaDocumentoLegale(dati, contesto) {
+  return await contenutiRepo.creaDocumentoLegale({
+    tipo: dati.tipo,
+    versione: dati.versione,
+    lingua: dati.lingua,
+    contenuto: dati.contenuto,
+    creato_da: contesto.utenteId,
+  });
+}
+
+async function bozzaDocumentoLegale(id) {
+  const documento = await dettaglioDocumentoLegale(id);
+  if (documento.pubblicato_il) {
     throw richiestaNonValida(
       'GIA_PUBBLICATO',
       'Documento già pubblicato: creane una nuova versione',
     );
-  return doc.update({ pubblicato_il: new Date() });
+  }
+  return documento;
 }
 
-// --- eventi speciali --------------------------------------------------------------------------
-
-const eventiSpeciali = crud(EventoSpeciale, {
-  codice: 'EVENTO_NON_TROVATO',
-  messaggio: 'Evento non trovato',
-  ordine: [['data_inizio', 'ASC']],
-});
-
-function eventiNelPeriodo(dal, al) {
-  return EventoSpeciale.findAll({
-    where: { data_inizio: { [Op.lte]: al }, data_fine: { [Op.gte]: dal } },
-    order: [['data_inizio', 'ASC']],
+async function aggiornaDocumentoLegale(id, dati) {
+  await bozzaDocumentoLegale(id);
+  return await contenutiRepo.aggiornaDocumentoLegale(id, {
+    versione: dati.versione,
+    contenuto: dati.contenuto,
   });
 }
 
+async function pubblicaDocumentoLegale(id) {
+  await bozzaDocumentoLegale(id);
+  return await contenutiRepo.aggiornaDocumentoLegale(id, { pubblicato_il: new Date() });
+}
+
+/** Si eliminano solo le bozze: i consensi degli utenti puntano alle versioni pubblicate. */
+async function eliminaDocumentoLegale(id) {
+  await bozzaDocumentoLegale(id);
+  await contenutiRepo.eliminaDocumentoLegale(id);
+}
+
+// ─────────────────────────────────────
+// Eventi speciali (festività, fiere, eventi locali)
+// ─────────────────────────────────────
+
+async function elencoEventi(filtri) {
+  return await contenutiRepo.trovaEventi(filtri);
+}
+
+async function eventiNelPeriodo(dal, al) {
+  return await contenutiRepo.trovaEventi({ dal, al });
+}
+
+async function dettaglioEvento(id) {
+  const evento = await contenutiRepo.trovaEventoPerId(id);
+  if (!evento) {
+    throw nonTrovato('EVENTO_NON_TROVATO', 'Evento non trovato');
+  }
+  return evento;
+}
+
+function controllaDateEvento(dataInizio, dataFine) {
+  if (dataInizio && dataFine && dataFine < dataInizio) {
+    throw richiestaNonValida('DATE_NON_VALIDE', "La fine dell'evento è prima dell'inizio");
+  }
+}
+
+async function creaEvento(dati) {
+  controllaDateEvento(dati.data_inizio, dati.data_fine);
+  return await contenutiRepo.creaEvento({
+    titolo: dati.titolo,
+    tipo: dati.tipo,
+    data_inizio: dati.data_inizio,
+    data_fine: dati.data_fine,
+    impatto: dati.impatto,
+    note: dati.note,
+  });
+}
+
+async function aggiornaEvento(id, dati) {
+  const evento = await dettaglioEvento(id);
+  controllaDateEvento(dati.data_inizio ?? evento.data_inizio, dati.data_fine ?? evento.data_fine);
+  return await contenutiRepo.aggiornaEvento(id, {
+    titolo: dati.titolo,
+    tipo: dati.tipo,
+    data_inizio: dati.data_inizio,
+    data_fine: dati.data_fine,
+    impatto: dati.impatto,
+    note: dati.note,
+  });
+}
+
+async function eliminaEvento(id) {
+  await dettaglioEvento(id);
+  await contenutiRepo.eliminaEvento(id);
+}
+
 module.exports = {
-  traduci,
   traduzioniDi,
   salvaTraduzioni,
-  eliminaTraduzioni,
   elencoMedia,
   aggiungiMedia,
   aggiornaMedia,
   riordinaMedia,
   eliminaMedia,
-  eliminaMediaDi,
-  faq,
+  eliminaContenutiDi,
+  elencoFaq,
   faqPubbliche,
-  documentiLegali,
+  dettaglioFaq,
+  creaFaq,
+  aggiornaFaq,
+  eliminaFaq,
+  elencoDocumentiLegali,
+  dettaglioDocumentoLegale,
   documentoLegaleVigente,
+  creaDocumentoLegale,
+  aggiornaDocumentoLegale,
   pubblicaDocumentoLegale,
-  eventiSpeciali,
+  eliminaDocumentoLegale,
+  elencoEventi,
   eventiNelPeriodo,
+  dettaglioEvento,
+  creaEvento,
+  aggiornaEvento,
+  eliminaEvento,
 };

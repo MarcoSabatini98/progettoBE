@@ -3,7 +3,7 @@ const prettierConfig = require('eslint-config-prettier');
 
 module.exports = [
   {
-    ignores: ['node_modules/', 'coverage/', 'logs/', 'uploads/'],
+    ignores: ['node_modules/', 'coverage/', 'logs/', 'uploads/', '.kilo/'],
   },
 
   // Regole generali (backend Node.js)

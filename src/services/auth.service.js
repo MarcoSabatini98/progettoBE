@@ -1,7 +1,9 @@
-// Autenticazione: registrazione, accesso, rotazione dei refresh token,
-// verifica email, reset password e token per i visitatori della chat.
+// src/services/auth.service.js
 //
-// Access token : JWT breve (15m), firmato con JWT_ACCESS_SECRET.
+// Registrazione, accesso, rotazione dei refresh token, verifica email, reset
+// password e token per i visitatori della chat.
+//
+// Access token : JWT breve, firmato con JWT_ACCESS_SECRET.
 // Refresh token: stringa casuale; nel DB solo l'HMAC. A ogni uso viene
 //                sostituito; il riuso di un token già usato revoca tutta la
 //                "famiglia" (qualcuno l'ha rubato).
@@ -10,17 +12,14 @@
 const crypto = require('node:crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { Op } = require('sequelize');
 const config = require('../config/env');
-const {
-  Utente,
-  TokenUtente,
-  Visitatore,
-  Ospite,
-  Consenso,
-  DocumentoLegale,
-  sequelize,
-} = require('../models');
+const { sequelize } = require('../models');
+const utentiRepo = require('../repositories/utenti.repository');
+const ospitiRepo = require('../repositories/ospiti.repository');
+const authRepo = require('../repositories/auth.repository');
+const email = require('./email.service');
+const permessi = require('./permessi.service');
+const { RUOLI } = require('../constants/ruoli.constants');
 const {
   ErroreApp,
   nonAutenticato,
@@ -30,23 +29,35 @@ const {
 } = require('../utils/errori');
 const { tokenCasuale, codiceNumerico, uuid } = require('../utils/sicurezza');
 const { aggiungiOre } = require('../utils/date');
-const email = require('./email.service');
-const permessi = require('./permessi.service');
 
 const COSTO_BCRYPT = 12;
 const TENTATIVI_MAX_CODICE = 5;
-const DURATA_CHAT = '30d';
+const DURATA_TOKEN_CHAT = '30d';
 
 // HMAC con il segreto dei refresh: chi legge il DB non può fabbricare token validi.
-const impronta = (valore) =>
-  crypto.createHmac('sha256', config.jwt.segretoRefresh).update(valore).digest('hex');
+function impronta(valore) {
+  return crypto.createHmac('sha256', config.jwt.segretoRefresh).update(valore).digest('hex');
+}
 
-const normalizzaEmail = (e) => String(e).trim().toLowerCase();
-const hashPassword = (password) => bcrypt.hash(password, COSTO_BCRYPT);
+function normalizzaEmail(indirizzo) {
+  return String(indirizzo).trim().toLowerCase();
+}
 
-const ORA = () => new Date();
+async function hashPassword(password) {
+  return await bcrypt.hash(password, COSTO_BCRYPT);
+}
 
-// --- sessioni -----------------------------------------------------------------
+// Dati del client salvati con token e consensi (per sicurezza e prova del consenso).
+function datiClient(meta) {
+  return {
+    ip: meta?.ip ?? null,
+    user_agent: meta?.userAgent?.slice(0, 255) ?? null,
+  };
+}
+
+// ─────────────────────────────────────
+// Sessioni
+// ─────────────────────────────────────
 
 function firmaAccess(utente) {
   return jwt.sign({ id: utente.id, ruolo: utente.ruolo }, config.jwt.segretoAccess, {
@@ -55,24 +66,23 @@ function firmaAccess(utente) {
   });
 }
 
-async function creaRefresh(utenteId, famiglia, meta, transaction) {
+async function creaRefresh(utenteId, famiglia, meta, transaction = null) {
   const token = tokenCasuale();
-  await TokenUtente.create(
+  await authRepo.creaToken(
     {
       utente_id: utenteId,
       tipo: 'refresh',
       hash_token: impronta(token),
       famiglia,
-      scade_il: aggiungiOre(ORA(), config.jwt.durataRefreshGiorni * 24),
-      ip: meta?.ip ?? null,
-      user_agent: meta?.userAgent?.slice(0, 255) ?? null,
+      scade_il: aggiungiOre(new Date(), config.jwt.durataRefreshGiorni * 24),
+      ...datiClient(meta),
     },
-    { transaction },
+    transaction,
   );
   return token;
 }
 
-/** Dati che il frontend riceve a ogni accesso/rinnovo. */
+/** Dati che il frontend riceve a ogni accesso e rinnovo. */
 async function sessione(utente, refreshToken) {
   return {
     accessToken: firmaAccess(utente),
@@ -92,32 +102,32 @@ async function sessione(utente, refreshToken) {
   };
 }
 
-// --- registrazione e accesso ---------------------------------------------------
+// ─────────────────────────────────────
+// Registrazione e accesso
+// ─────────────────────────────────────
 
+// Un consenso per ogni voce, legato alla versione pubblicata del documento.
 async function registraConsensi(utenteId, ospiteId, consensi, meta, transaction) {
   const righe = [];
   for (const [tipo, accettato] of Object.entries(consensi ?? {})) {
-    const documento = await DocumentoLegale.findOne({
-      where: { tipo, pubblicato_il: { [Op.ne]: null } },
-      order: [['pubblicato_il', 'DESC']],
-      transaction,
-    });
+    const documento = await authRepo.trovaDocumentoLegalePubblicato(tipo, transaction);
     righe.push({
       utente_id: utenteId,
       ospite_id: ospiteId,
       documento_id: documento?.id ?? null,
       tipo,
       accettato: Boolean(accettato),
-      ip: meta?.ip ?? null,
-      user_agent: meta?.userAgent?.slice(0, 255) ?? null,
+      ...datiClient(meta),
     });
   }
-  if (righe.length) await Consenso.bulkCreate(righe, { transaction });
+  if (righe.length > 0) {
+    await authRepo.creaConsensi(righe, transaction);
+  }
 }
 
 /**
- * Registrazione di un cliente dal sito. Crea anche la sua anagrafica
- * (ospite), che il cliente completerà dall'area personale.
+ * Registrazione di un cliente dal sito. Crea anche la sua anagrafica, che il
+ * cliente completerà dall'area personale.
  */
 async function registra(dati, meta) {
   if (!dati.consensi?.privacy || !dati.consensi?.termini) {
@@ -127,26 +137,26 @@ async function registra(dati, meta) {
     );
   }
   const indirizzo = normalizzaEmail(dati.email);
-  if (await Utente.findOne({ where: { email: indirizzo }, paranoid: false })) {
+  if (await utentiRepo.esisteEmail(indirizzo)) {
     throw conflitto('EMAIL_GIA_REGISTRATA', 'Esiste già un account con questa email');
   }
   const passwordHash = await hashPassword(dati.password);
 
   const { utente, refreshToken } = await sequelize.transaction(async (transaction) => {
-    const nuovo = await Utente.create(
+    const nuovo = await utentiRepo.creaUtente(
       {
         email: indirizzo,
         password_hash: passwordHash,
-        ruolo: 'cliente',
+        ruolo: RUOLI.CLIENTE,
         nome: dati.nome.trim(),
         cognome: dati.cognome.trim(),
         telefono: dati.telefono ?? null,
         lingua: dati.lingua ?? 'it',
-        ultimo_accesso_il: ORA(),
+        ultimo_accesso_il: new Date(),
       },
-      { transaction },
+      transaction,
     );
-    const anagrafica = await Ospite.create(
+    const anagrafica = await ospitiRepo.creaOspite(
       {
         utente_id: nuovo.id,
         nome: nuovo.nome,
@@ -155,114 +165,118 @@ async function registra(dati, meta) {
         telefono: nuovo.telefono,
         lingua: nuovo.lingua,
       },
-      { transaction },
+      transaction,
     );
     await nuovo.update({ ospite_id: anagrafica.id }, { transaction });
     await registraConsensi(nuovo.id, anagrafica.id, dati.consensi, meta, transaction);
-    return { utente: nuovo, refreshToken: await creaRefresh(nuovo.id, uuid(), meta, transaction) };
+
+    const token = await creaRefresh(nuovo.id, uuid(), meta, transaction);
+    return { utente: nuovo, refreshToken: token };
   });
 
   await inviaCodiceVerifica(utente);
-  return sessione(utente, refreshToken);
+  return await sessione(utente, refreshToken);
 }
 
 async function accedi(indirizzo, password, meta) {
-  const utente = await Utente.scope('autenticazione').findOne({
-    where: { email: normalizzaEmail(indirizzo) },
+  const utente = await utentiRepo.trovaUtentePerAutenticazione({
+    email: normalizzaEmail(indirizzo),
   });
-  // stesso messaggio per email e password sbagliate: non si rivela chi è registrato
-  const valida = utente ? await bcrypt.compare(password, utente.password_hash) : false;
-  if (!valida) throw nonAutenticato('CREDENZIALI_NON_VALIDE', 'Email o password non corretti');
-  if (!utente.attivo) throw vietato('ACCOUNT_DISATTIVATO', 'Questo account è stato disattivato');
 
-  await utente.update({ ultimo_accesso_il: ORA() });
-  return sessione(utente, await creaRefresh(utente.id, uuid(), meta));
+  // Stesso messaggio per email e password sbagliate: non si rivela chi è registrato.
+  const passwordGiusta = utente ? await bcrypt.compare(password, utente.password_hash) : false;
+  if (!passwordGiusta) {
+    throw nonAutenticato('CREDENZIALI_NON_VALIDE', 'Email o password non corretti');
+  }
+  if (!utente.attivo) {
+    throw vietato('ACCOUNT_DISATTIVATO', 'Questo account è stato disattivato');
+  }
+
+  await utente.update({ ultimo_accesso_il: new Date() });
+  const refreshToken = await creaRefresh(utente.id, uuid(), meta);
+  return await sessione(utente, refreshToken);
+}
+
+function sessioneScaduta() {
+  return nonAutenticato('SESSIONE_SCADUTA', 'Sessione scaduta: accedi di nuovo');
 }
 
 /** Rotazione: il vecchio refresh diventa usato e ne nasce uno nuovo, stessa famiglia. */
 async function rinnova(refreshToken, meta) {
-  const nonValido = () => nonAutenticato('SESSIONE_SCADUTA', 'Sessione scaduta: accedi di nuovo');
-  if (!refreshToken) throw nonValido();
+  if (!refreshToken) {
+    throw sessioneScaduta();
+  }
 
-  const record = await TokenUtente.findOne({
-    where: { hash_token: impronta(refreshToken), tipo: 'refresh' },
-  });
-  if (!record || record.revocato_il || record.scade_il < ORA()) throw nonValido();
+  const record = await authRepo.trovaToken(impronta(refreshToken), 'refresh');
+  if (!record || record.revocato_il || record.scade_il < new Date()) {
+    throw sessioneScaduta();
+  }
 
+  // Un refresh già usato che torna indietro è stato copiato: si chiude la famiglia.
   if (record.usato_il) {
-    await revocaFamiglia(record.famiglia);
+    await authRepo.revocaFamiglia(record.famiglia);
     throw nonAutenticato(
       'SESSIONE_COMPROMESSA',
       'Sessione non più valida per sicurezza: accedi di nuovo',
     );
   }
 
-  return sequelize.transaction(async (transaction) => {
-    // UPDATE condizionato: due rinnovi simultanei con lo stesso token → uno solo passa
-    const [aggiornati] = await TokenUtente.update(
-      { usato_il: ORA() },
-      { where: { id: record.id, usato_il: null }, transaction },
-    );
-    if (aggiornati === 0) throw nonValido();
+  return await sequelize.transaction(async (transaction) => {
+    const segnato = await authRepo.segnaTokenUsato(record.id, transaction);
+    if (!segnato) {
+      throw sessioneScaduta();
+    }
 
-    const utente = await Utente.findByPk(record.utente_id, { transaction });
-    if (!utente?.attivo) throw nonValido();
-    return sessione(utente, await creaRefresh(utente.id, record.famiglia, meta, transaction));
+    const utente = await utentiRepo.trovaUtentePerId(record.utente_id, transaction);
+    if (!utente?.attivo) {
+      throw sessioneScaduta();
+    }
+    const nuovoToken = await creaRefresh(utente.id, record.famiglia, meta, transaction);
+    return await sessione(utente, nuovoToken);
   });
-}
-
-async function revocaFamiglia(famiglia) {
-  if (!famiglia) return;
-  await TokenUtente.update(
-    { revocato_il: ORA() },
-    { where: { famiglia, tipo: 'refresh', revocato_il: null } },
-  );
 }
 
 async function esci(refreshToken) {
-  if (!refreshToken) return;
-  const record = await TokenUtente.findOne({
-    where: { hash_token: impronta(refreshToken), tipo: 'refresh' },
-  });
-  await revocaFamiglia(record?.famiglia);
+  if (!refreshToken) {
+    return;
+  }
+  const record = await authRepo.trovaToken(impronta(refreshToken), 'refresh');
+  if (record?.famiglia) {
+    await authRepo.revocaFamiglia(record.famiglia);
+  }
 }
 
 /** Chiude tutte le sessioni dell'utente (cambio password, disattivazione). */
-async function esciOvunque(utenteId, transaction) {
-  await TokenUtente.update(
-    { revocato_il: ORA() },
-    { where: { utente_id: utenteId, tipo: 'refresh', revocato_il: null }, transaction },
-  );
+async function esciOvunque(utenteId, transaction = null) {
+  await authRepo.revocaTokenUtente(utenteId, 'refresh', transaction);
 }
 
-// --- verifica email ---------------------------------------------------------------
+// ─────────────────────────────────────
+// Verifica email
+// ─────────────────────────────────────
 
 async function inviaCodiceVerifica(utente) {
   if (utente.email_verificata_il) {
-    throw richiestaNonValida('EMAIL_GIA_VERIFICATA', 'L’email è già verificata');
+    throw richiestaNonValida('EMAIL_GIA_VERIFICATA', "L'email è già verificata");
   }
   const codice = codiceNumerico();
+  // Il sale sta in "famiglia": due codici uguali non collidono sull'hash.
   const sale = uuid();
+
   await sequelize.transaction(async (transaction) => {
-    await TokenUtente.update(
-      { revocato_il: ORA() },
-      {
-        where: { utente_id: utente.id, tipo: 'verifica_email', usato_il: null, revocato_il: null },
-        transaction,
-      },
-    );
-    await TokenUtente.create(
+    await authRepo.revocaTokenUtente(utente.id, 'verifica_email', transaction);
+    await authRepo.creaToken(
       {
         utente_id: utente.id,
         tipo: 'verifica_email',
-        // il sale sta in "famiglia": due codici uguali non collidono sull'hash
         hash_token: impronta(`${sale}:${codice}`),
         famiglia: sale,
-        scade_il: aggiungiOre(ORA(), 24),
+        scade_il: aggiungiOre(new Date(), 24),
       },
-      { transaction },
+      transaction,
     );
   });
+
   await email.invia({
     a: utente.email,
     modello: 'verifica_email',
@@ -271,53 +285,61 @@ async function inviaCodiceVerifica(utente) {
   });
 }
 
+/** Nuovo codice su richiesta dell'utente. */
+async function reinviaCodiceVerifica(utenteId) {
+  const utente = await utentiRepo.trovaUtentePerId(utenteId);
+  if (!utente) {
+    throw nonAutenticato('SESSIONE_SCADUTA', 'Sessione scaduta: accedi di nuovo');
+  }
+  await inviaCodiceVerifica(utente);
+}
+
 async function verificaEmail(utenteId, codice) {
-  const record = await TokenUtente.findOne({
-    where: {
-      utente_id: utenteId,
-      tipo: 'verifica_email',
-      usato_il: null,
-      revocato_il: null,
-      scade_il: { [Op.gt]: ORA() },
-    },
-    order: [['creato_il', 'DESC']],
-  });
+  const record = await authRepo.trovaTokenValido({ utente_id: utenteId, tipo: 'verifica_email' });
   if (!record) {
     throw richiestaNonValida('CODICE_SCADUTO', 'Codice scaduto: richiedine uno nuovo');
   }
-  if (impronta(`${record.famiglia}:${String(codice).trim()}`) !== record.hash_token) {
+
+  const codiceGiusto =
+    impronta(`${record.famiglia}:${String(codice).trim()}`) === record.hash_token;
+  if (!codiceGiusto) {
     const tentativi = record.tentativi + 1;
-    await record.update({
+    const esauriti = tentativi >= TENTATIVI_MAX_CODICE;
+    await authRepo.aggiornaToken(record.id, {
       tentativi,
-      revocato_il: tentativi >= TENTATIVI_MAX_CODICE ? ORA() : null,
+      revocato_il: esauriti ? new Date() : null,
     });
     throw richiestaNonValida(
       'CODICE_ERRATO',
-      tentativi >= TENTATIVI_MAX_CODICE
+      esauriti
         ? 'Troppi tentativi: richiedi un nuovo codice'
         : `Codice errato (tentativi rimasti: ${TENTATIVI_MAX_CODICE - tentativi})`,
     );
   }
+
   await sequelize.transaction(async (transaction) => {
-    await record.update({ usato_il: ORA() }, { transaction });
-    await Utente.update({ email_verificata_il: ORA() }, { where: { id: utenteId }, transaction });
+    await authRepo.segnaTokenUsato(record.id, transaction);
+    await utentiRepo.aggiornaUtente(utenteId, { email_verificata_il: new Date() }, transaction);
   });
 }
 
-// --- password ------------------------------------------------------------------------
+// ─────────────────────────────────────
+// Password
+// ─────────────────────────────────────
 
 /** Risponde sempre allo stesso modo: non rivela se l'email è registrata. */
 async function richiediResetPassword(indirizzo) {
-  const utente = await Utente.findOne({
-    where: { email: normalizzaEmail(indirizzo), attivo: true },
-  });
-  if (!utente) return;
+  const utente = await utentiRepo.trovaUtentePerEmail(normalizzaEmail(indirizzo));
+  if (!utente?.attivo) {
+    return;
+  }
+
   const token = tokenCasuale();
-  await TokenUtente.create({
+  await authRepo.creaToken({
     utente_id: utente.id,
     tipo: 'reset_password',
     hash_token: impronta(token),
-    scade_il: aggiungiOre(ORA(), 1),
+    scade_il: aggiungiOre(new Date(), 1),
   });
   await email.invia({
     a: utente.email,
@@ -331,14 +353,9 @@ async function richiediResetPassword(indirizzo) {
 }
 
 async function reimpostaPassword(token, nuovaPassword) {
-  const record = await TokenUtente.findOne({
-    where: {
-      hash_token: impronta(String(token)),
-      tipo: 'reset_password',
-      usato_il: null,
-      revocato_il: null,
-      scade_il: { [Op.gt]: ORA() },
-    },
+  const record = await authRepo.trovaTokenValido({
+    hash_token: impronta(String(token)),
+    tipo: 'reset_password',
   });
   if (!record) {
     throw richiestaNonValida(
@@ -346,22 +363,22 @@ async function reimpostaPassword(token, nuovaPassword) {
       'Il link non è valido o è scaduto: richiedine uno nuovo',
     );
   }
+
   const passwordHash = await hashPassword(nuovaPassword);
   await sequelize.transaction(async (transaction) => {
-    await record.update({ usato_il: ORA() }, { transaction });
-    await Utente.update(
-      { password_hash: passwordHash },
-      { where: { id: record.utente_id }, transaction },
-    );
+    await authRepo.segnaTokenUsato(record.id, transaction);
+    await utentiRepo.aggiornaUtente(record.utente_id, { password_hash: passwordHash }, transaction);
     await esciOvunque(record.utente_id, transaction);
   });
 }
 
 async function cambiaPassword(utenteId, attuale, nuova) {
-  const utente = await Utente.scope('autenticazione').findByPk(utenteId);
-  if (!utente || !(await bcrypt.compare(attuale, utente.password_hash))) {
+  const utente = await utentiRepo.trovaUtentePerAutenticazione({ id: utenteId });
+  const attualeGiusta = utente ? await bcrypt.compare(attuale, utente.password_hash) : false;
+  if (!attualeGiusta) {
     throw richiestaNonValida('PASSWORD_ATTUALE_ERRATA', 'La password attuale non è corretta');
   }
+
   const passwordHash = await hashPassword(nuova);
   await sequelize.transaction(async (transaction) => {
     await utente.update({ password_hash: passwordHash }, { transaction });
@@ -369,35 +386,40 @@ async function cambiaPassword(utenteId, attuale, nuova) {
   });
 }
 
-// --- verifica dei token (usata dai middleware) -------------------------------------
+// ─────────────────────────────────────
+// Verifica dei token (per i middleware)
+// ─────────────────────────────────────
 
 function verificaAccess(token) {
   try {
     return jwt.verify(token, config.jwt.segretoAccess);
-  } catch (err) {
-    throw err.name === 'TokenExpiredError'
-      ? nonAutenticato('TOKEN_SCADUTO', 'Sessione scaduta')
-      : nonAutenticato('TOKEN_NON_VALIDO', 'Token di accesso non valido');
+  } catch (errore) {
+    if (errore.name === 'TokenExpiredError') {
+      throw nonAutenticato('TOKEN_SCADUTO', 'Sessione scaduta');
+    }
+    throw nonAutenticato('TOKEN_NON_VALIDO', 'Token di accesso non valido');
   }
 }
 
-// --- visitatori della chat ---------------------------------------------------------
+// ─────────────────────────────────────
+// Visitatori della chat
+// ─────────────────────────────────────
+
+function firmaVisitatore(visitatore) {
+  return jwt.sign({ tipo: 'visitatore', id: visitatore.id }, config.jwt.segretoChat, {
+    subject: visitatore.uuid,
+    expiresIn: DURATA_TOKEN_CHAT,
+  });
+}
 
 /** Crea un visitatore anonimo e gli dà il token per la chat di assistenza. */
-const firmaVisitatore = (v) =>
-  jwt.sign({ tipo: 'visitatore', id: v.id }, config.jwt.segretoChat, {
-    subject: v.uuid,
-    expiresIn: DURATA_CHAT,
-  });
-
 async function creaVisitatore(dati, meta) {
-  const visitatore = await Visitatore.create({
+  const visitatore = await authRepo.creaVisitatore({
     nome: dati?.nome ?? null,
     email: dati?.email ? normalizzaEmail(dati.email) : null,
     lingua: dati?.lingua ?? 'it',
-    ip: meta?.ip ?? null,
-    user_agent: meta?.userAgent?.slice(0, 255) ?? null,
-    ultimo_accesso_il: ORA(),
+    ...datiClient(meta),
+    ultimo_accesso_il: new Date(),
   });
   return {
     token: firmaVisitatore(visitatore),
@@ -415,27 +437,38 @@ async function verificaVisitatore(token) {
       'Sessione della chat scaduta: ricarica la pagina',
     );
   }
-  const visitatore = await Visitatore.findOne({ where: { uuid: payload.sub } });
-  if (!visitatore) throw nonAutenticato('TOKEN_CHAT_NON_VALIDO', 'Sessione della chat non valida');
-  if (visitatore.bloccato)
+
+  const visitatore = await authRepo.trovaVisitatorePerUuid(payload.sub);
+  if (!visitatore) {
+    throw nonAutenticato('TOKEN_CHAT_NON_VALIDO', 'Sessione della chat non valida');
+  }
+  if (visitatore.bloccato) {
     throw new ErroreApp(403, 'VISITATORE_BLOCCATO', 'Non puoi più usare la chat');
+  }
   return visitatore;
 }
 
+/** Job: elimina i token scaduti da tempo. */
+async function eliminaTokenScaduti() {
+  return await authRepo.eliminaTokenScaduti();
+}
+
 module.exports = {
+  normalizzaEmail,
+  hashPassword,
   registra,
   accedi,
   rinnova,
   esci,
   esciOvunque,
   inviaCodiceVerifica,
+  reinviaCodiceVerifica,
   verificaEmail,
   richiediResetPassword,
   reimpostaPassword,
   cambiaPassword,
-  hashPassword,
   verificaAccess,
   creaVisitatore,
   verificaVisitatore,
-  normalizzaEmail,
+  eliminaTokenScaduti,
 };

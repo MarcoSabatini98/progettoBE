@@ -1,502 +1,658 @@
-// Chat di assistenza (clienti e visitatori ↔ staff con chat.assistenza) e chat
-// interna dello staff (chi parla con chi lo decide regole_chat, controllato dal DB).
-// Il socket si iscrive a `eventi` per consegnare i messaggi in tempo reale.
+// src/services/chat.service.js
+//
+// Chat reale, senza bot:
+//  - assistenza: cliente o visitatore ↔ staff con il permesso chat.assistenza;
+//  - staff: chat interna, diretta o di gruppo. Chi può parlare con chi lo
+//    decidono le regole_chat (le controlla il trigger sui partecipanti).
+//    Ogni membro dello staff è nel gruppo della propria squadra.
 //
 // `chi` è chi sta agendo: { utenteId, ruolo } oppure { visitatoreId }.
+// Il socket ascolta `eventi` per consegnare tutto in tempo reale.
 
 const { EventEmitter } = require('node:events');
-const { Op } = require('sequelize');
-const {
-  Conversazione,
-  ConversazionePartecipante,
-  Messaggio,
-  MessaggioAllegato,
-  ChatRiepilogoEmail,
-  Utente,
-  Visitatore,
-  sequelize,
-} = require('../models');
+const { sequelize } = require('../models');
 const config = require('../config/env');
 const logger = require('../config/logger');
-const { oppure404, vietato, richiestaNonValida } = require('../utils/errori');
-const { pagina, risultato } = require('../utils/paginazione');
-const file = require('../utils/file');
+const chatRepo = require('../repositories/chat.repository');
+const utentiRepo = require('../repositories/utenti.repository');
 const permessi = require('./permessi.service');
 const impostazioni = require('./impostazioni.service');
+const notifiche = require('./notifiche.service');
 const email = require('./email.service');
-const { seleziona } = require('./sql');
+const { documentoChat } = require('./helpers/chat-pdf');
+const { creaPdf } = require('../utils/pdf');
+const file = require('../utils/file');
+const { RUOLI, SQUADRE, PERMESSI } = require('../constants/ruoli.constants');
+const { GRUPPI_SQUADRA, STATI_PRESENZA } = require('../constants/chat.constants');
+const { nonTrovato, vietato, richiestaNonValida } = require('../utils/errori');
+const { pagina, risultato } = require('../utils/paginazione');
 
-/** 'messaggio' → { conversazione, messaggio } · 'letto' → { conversazione, chi, il } */
+// 'messaggio' → { conversazione, messaggio }
+// 'letto'     → { conversazione, chi, il }
+// 'presenza'  → { utenteId, stato }
 const eventi = new EventEmitter();
 
-const EPOCA = "'1970-01-01'";
-const persona = (as) => ({ model: Utente, as, attributes: ['id', 'nome', 'cognome', 'ruolo'] });
-const includeMessaggio = [
-  persona('mittente_utente'),
-  { model: Visitatore, as: 'mittente_visitatore', attributes: ['id', 'nome'] },
-  { model: MessaggioAllegato, as: 'allegati' },
-];
+const MINUTI_TOLLERANZA_EMAIL = 5;
+const MESSAGGI_PER_PAGINA = 50;
 
-const eCliente = (chi) => Boolean(chi.visitatoreId) || chi.ruolo === 'cliente';
+function eCliente(chi) {
+  return Boolean(chi.visitatoreId) || chi.ruolo === RUOLI.CLIENTE;
+}
 
-// --- accesso -----------------------------------------------------------------------
+function eGruppoSquadra(conversazione) {
+  return Object.values(GRUPPI_SQUADRA).includes(conversazione.titolo);
+}
 
-const trova = async (uuid, transaction) =>
-  oppure404(
-    await Conversazione.findOne({ where: { uuid }, transaction }),
-    'CONVERSAZIONE_NON_TROVATA',
-    'Conversazione non trovata',
-  );
+function minutiFa(minuti) {
+  return new Date(Date.now() - minuti * 60 * 1000);
+}
 
-const partecipante = (conversazioneId, utenteId, transaction) =>
-  ConversazionePartecipante.findOne({
-    where: { conversazione_id: conversazioneId, utente_id: utenteId, uscito_il: null },
-    transaction,
-  });
+// ─────────────────────────────────────
+// Presenza dello staff
+// ponytail: in memoria del processo; con più istanze servirebbe Redis.
+// ─────────────────────────────────────
+
+const presenze = new Map();
+
+function impostaPresenza(utenteId, stato) {
+  if (!STATI_PRESENZA.includes(stato)) {
+    throw richiestaNonValida('STATO_PRESENZA_NON_VALIDO', 'Stato di presenza non valido');
+  }
+  if (stato === 'offline') {
+    presenze.delete(utenteId);
+  } else {
+    presenze.set(utenteId, stato);
+  }
+  eventi.emit('presenza', { utenteId, stato });
+}
+
+function presenzaDi(utenteId) {
+  return presenze.get(utenteId) ?? 'offline';
+}
+
+/** Per il widget del sito: c'è qualcuno dello staff pronto a rispondere? */
+async function statoAssistenza() {
+  for (const [utenteId, stato] of presenze) {
+    const utente = stato === 'online' ? await utentiRepo.trovaUtentePerId(utenteId) : null;
+    if (utente?.attivo && (await permessi.ha(utente.ruolo, PERMESSI.CHAT_ASSISTENZA))) {
+      return { disponibile: true };
+    }
+  }
+  return { disponibile: false };
+}
+
+// ─────────────────────────────────────
+// Accesso
+// ─────────────────────────────────────
+
+async function conversazioneOppure404(uuid) {
+  const conversazione = await chatRepo.trovaConversazionePerUuid(uuid);
+  if (!conversazione) {
+    throw nonTrovato('CONVERSAZIONE_NON_TROVATA', 'Conversazione non trovata');
+  }
+  return conversazione;
+}
+
+async function puoAssistere(ruolo) {
+  return await permessi.ha(ruolo, PERMESSI.CHAT_ASSISTENZA);
+}
 
 /**
- * Verifica che `chi` possa stare nella conversazione.
- * @returns {Promise<'cliente'|'staff'>} il lato da cui partecipa
+ * Controlla che `chi` possa stare nella conversazione.
+ * Restituisce il lato da cui partecipa: 'cliente' o 'staff'.
  */
-async function lato(conv, chi) {
-  if (conv.tipo === 'assistenza') {
-    if (chi.visitatoreId && chi.visitatoreId === conv.visitatore_id) return 'cliente';
-    if (chi.utenteId && chi.utenteId === conv.cliente_id) return 'cliente';
-    if (chi.utenteId && (await permessi.ha(chi.ruolo, 'chat.assistenza'))) return 'staff';
-  } else if (chi.utenteId && (await partecipante(conv.id, chi.utenteId))) {
+async function lato(conversazione, chi) {
+  if (conversazione.tipo === 'assistenza') {
+    if (chi.visitatoreId && chi.visitatoreId === conversazione.visitatore_id) {
+      return 'cliente';
+    }
+    if (chi.utenteId && chi.utenteId === conversazione.cliente_id) {
+      return 'cliente';
+    }
+    if (chi.utenteId && !eCliente(chi) && (await puoAssistere(chi.ruolo))) {
+      return 'staff';
+    }
+  } else if (chi.utenteId && (await chatRepo.trovaPartecipazione(conversazione.id, chi.utenteId))) {
     return 'staff';
   }
   throw vietato('CONVERSAZIONE_NON_ACCESSIBILE', 'Non partecipi a questa conversazione');
 }
 
-// --- elenco ----------------------------------------------------------------------------
-
-/** Sottoquery: messaggi non letti da `chi` e anteprima dell'ultimo. */
-function attributiExtra(chi) {
-  const id = Number(chi.utenteId ?? chi.visitatoreId);
-  const altrui = chi.visitatoreId
-    ? `(m.mittente_visitatore_id IS NULL OR m.mittente_visitatore_id <> ${id})`
-    : `(m.mittente_utente_id IS NULL OR m.mittente_utente_id <> ${id})`;
-  const letto = eCliente(chi)
-    ? 'conversazioni.letto_cliente_il'
-    : `(SELECT COALESCE(p.letto_fino_al, p.entrato_il) FROM conversazioni_partecipanti p
-         WHERE p.conversazione_id = conversazioni.id AND p.utente_id = ${id})`;
-  return [
-    [
-      sequelize.literal(`(SELECT COUNT(*) FROM messaggi m
-        WHERE m.conversazione_id = conversazioni.id AND m.eliminato_il IS NULL AND ${altrui}
-          AND m.inviato_il > COALESCE(${letto}, ${EPOCA}))`),
-      'non_letti',
-    ],
-    [
-      sequelize.literal(`(SELECT LEFT(m.testo, 120) FROM messaggi m
-        WHERE m.conversazione_id = conversazioni.id AND m.eliminato_il IS NULL
-        ORDER BY m.id DESC LIMIT 1)`),
-      'anteprima',
-    ],
-  ];
-}
-
-/**
- * Conversazioni visibili a `chi`.
- * Staff: query.tipo = 'staff' (default) | 'assistenza'; per l'assistenza
- * query.assegnate = 'mie' | 'libere'; query.stato = 'aperta' | 'chiusa'.
- */
-async function elenco(chi, query = {}) {
-  const p = pagina(query);
-  const where = {};
-  const include = [persona('operatore'), persona('cliente')];
-
-  if (chi.visitatoreId)
-    Object.assign(where, { tipo: 'assistenza', visitatore_id: chi.visitatoreId });
-  else if (chi.ruolo === 'cliente')
-    Object.assign(where, { tipo: 'assistenza', cliente_id: chi.utenteId });
-  else if (query.tipo === 'assistenza') {
-    if (!(await permessi.ha(chi.ruolo, 'chat.assistenza')))
-      throw vietato('PERMESSO_NEGATO', 'Non gestisci la chat di assistenza');
-    where.tipo = 'assistenza';
-    if (query.assegnate === 'mie') where.assegnata_a = chi.utenteId;
-    if (query.assegnate === 'libere') where.assegnata_a = null;
-    include.push({ model: Visitatore, as: 'visitatore', attributes: ['id', 'nome', 'email'] });
-  } else {
-    where.tipo = 'staff';
-    include.push({
-      model: Utente,
-      as: 'partecipanti',
-      where: { id: chi.utenteId },
-      through: { where: { uscito_il: null }, attributes: [] },
-      attributes: [],
-    });
+async function soloChatStaff(uuid, chi) {
+  const conversazione = await conversazioneOppure404(uuid);
+  if (conversazione.tipo !== 'staff') {
+    throw richiestaNonValida('SOLO_CHAT_STAFF', 'Solo nella chat interna');
   }
-  if (query.stato) where.stato = query.stato;
-
-  const righe = await Conversazione.findAndCountAll({
-    where,
-    include,
-    attributes: { include: attributiExtra(chi) },
-    order: [[sequelize.literal('COALESCE(ultimo_messaggio_il, conversazioni.creato_il)'), 'DESC']],
-    limit: p.limit,
-    offset: p.offset,
-    distinct: true,
-  });
-  return risultato(righe, p);
+  await lato(conversazione, chi);
+  return conversazione;
 }
 
-async function dettaglio(uuid, chi) {
-  const conv = await trova(uuid);
-  await lato(conv, chi);
-  return Conversazione.findByPk(conv.id, {
-    include: [
-      persona('operatore'),
-      persona('cliente'),
-      { model: Visitatore, as: 'visitatore', attributes: ['id', 'nome', 'email'] },
-      {
-        model: Utente,
-        as: 'partecipanti',
-        attributes: ['id', 'nome', 'cognome', 'ruolo'],
-        through: { attributes: ['entrato_il', 'uscito_il', 'letto_fino_al'] },
-      },
-    ],
-    attributes: { include: attributiExtra(chi) },
-  });
+// ─────────────────────────────────────
+// Non letti e anteprima
+// ─────────────────────────────────────
+
+// Da quando `chi` ha letto la conversazione (null = mai).
+function lettoDal(conversazione, chi, partecipazione) {
+  if (eCliente(chi)) {
+    return conversazione.letto_cliente_il;
+  }
+  if (!partecipazione) {
+    return null;
+  }
+  return partecipazione.letto_fino_al ?? partecipazione.entrato_il;
 }
 
-/**
- * Contatori per i badge. Assistenza: non letti delle mie + conversazioni libere.
- * ponytail: somma sulle prime 100 conversazioni aperte, basta per una struttura.
- */
-async function totaleNonLetti(chi) {
-  const somma = async (query) =>
-    (await elenco(chi, { ...query, stato: 'aperta', perPagina: 100 })).elementi.reduce(
-      (s, c) => s + Number(c.get('non_letti')),
-      0,
-    );
-  if (eCliente(chi)) return { assistenza: await somma({}), staff: 0, libere: 0 };
-  const assistenza = await permessi.ha(chi.ruolo, 'chat.assistenza');
+// ponytail: due query per conversazione; va bene per le pagine da 20-100.
+async function conRiepilogo(conversazione, chi, partecipazione) {
+  const dal = lettoDal(conversazione, chi, partecipazione);
+  const ultimo = await chatRepo.trovaUltimoMessaggio(conversazione.id);
+  const dati = conversazione.toJSON();
+  delete dati.membri;
   return {
-    staff: await somma({ tipo: 'staff' }),
-    assistenza: assistenza ? await somma({ tipo: 'assistenza', assegnate: 'mie' }) : 0,
-    libere: assistenza
-      ? await Conversazione.count({
-          where: { tipo: 'assistenza', stato: 'aperta', assegnata_a: null },
-        })
-      : 0,
+    ...dati,
+    non_letti: await chatRepo.contaNonLetti(conversazione.id, chi, dal),
+    anteprima: ultimo ? ultimo.testo.slice(0, 120) : null,
   };
 }
 
-// --- messaggi ---------------------------------------------------------------------------
+// ─────────────────────────────────────
+// Elenco e dettaglio
+// ─────────────────────────────────────
 
-/** Storico a ritroso: `prima_di` = id dell'ultimo messaggio già caricato. */
-async function messaggi(uuid, chi, { prima_di, limite = 50 } = {}) {
-  const conv = await trova(uuid);
-  await lato(conv, chi);
-  const where = { conversazione_id: conv.id };
-  if (prima_di) where.id = { [Op.lt]: prima_di };
-  const righe = await Messaggio.findAll({
-    where,
-    include: includeMessaggio,
-    order: [['id', 'DESC']],
-    limit: Math.min(Number(limite) || 50, 100),
-  });
-  return righe.reverse();
+async function filtriElenco(chi, query) {
+  if (chi.visitatoreId) {
+    return { tipo: 'assistenza', visitatore_id: chi.visitatoreId };
+  }
+  if (chi.ruolo === RUOLI.CLIENTE) {
+    return { tipo: 'assistenza', cliente_id: chi.utenteId };
+  }
+  if (query.tipo !== 'assistenza') {
+    return { tipo: 'staff', membroId: chi.utenteId, soloDoveMembro: true };
+  }
+
+  if (!(await puoAssistere(chi.ruolo))) {
+    throw vietato('PERMESSO_NEGATO', 'Non gestisci la chat di assistenza');
+  }
+  const filtri = { tipo: 'assistenza', membroId: chi.utenteId, soloDoveMembro: false };
+  if (query.assegnate === 'mie') {
+    filtri.assegnata_a = chi.utenteId;
+  }
+  if (query.assegnate === 'libere') {
+    filtri.assegnata_a = null;
+  }
+  return filtri;
+}
+
+/**
+ * Conversazioni visibili a `chi`, con non letti e anteprima.
+ * Staff: query.tipo = 'staff' (default) | 'assistenza';
+ * per l'assistenza query.assegnate = 'mie' | 'libere'. query.stato = 'aperta' | 'chiusa'.
+ */
+async function elenco(chi, query = {}) {
+  const p = pagina(query);
+  const filtri = await filtriElenco(chi, query);
+  if (query.stato) {
+    filtri.stato = query.stato;
+  }
+
+  const trovate = await chatRepo.trovaConversazioni(filtri, p);
+  const esito = risultato(trovate, p);
+  const elementi = [];
+  for (const conversazione of esito.elementi) {
+    elementi.push(await conRiepilogo(conversazione, chi, conversazione.membri?.[0]));
+  }
+  return { ...esito, elementi };
+}
+
+async function dettaglio(uuid, chi) {
+  const conversazione = await conversazioneOppure404(uuid);
+  await lato(conversazione, chi);
+  const completa = await chatRepo.trovaDettaglioConversazione(conversazione.id);
+  const partecipazione = chi.utenteId
+    ? await chatRepo.trovaPartecipazione(conversazione.id, chi.utenteId)
+    : null;
+  const esito = await conRiepilogo(completa, chi, partecipazione);
+  for (const partecipante of esito.partecipanti ?? []) {
+    partecipante.presenza = presenzaDi(partecipante.id);
+  }
+  return esito;
+}
+
+/** Contatori per i badge. Staff con assistenza: anche le conversazioni libere. */
+async function totaleNonLetti(chi) {
+  const somma = async (query) => {
+    const { elementi } = await elenco(chi, { ...query, stato: 'aperta', perPagina: 100 });
+    return elementi.reduce((totale, conversazione) => totale + conversazione.non_letti, 0);
+  };
+
+  if (eCliente(chi)) {
+    return { assistenza: await somma({}), staff: 0, libere: 0 };
+  }
+  const assiste = await puoAssistere(chi.ruolo);
+  return {
+    staff: await somma({ tipo: 'staff' }),
+    assistenza: assiste ? await somma({ tipo: 'assistenza', assegnate: 'mie' }) : 0,
+    libere: assiste ? await chatRepo.contaAssistenzeLibere() : 0,
+  };
+}
+
+// ─────────────────────────────────────
+// Messaggi
+// ─────────────────────────────────────
+
+/** Storico a ritroso: prima_di = id del messaggio più vecchio già caricato. */
+async function messaggi(uuid, chi, query = {}) {
+  const conversazione = await conversazioneOppure404(uuid);
+  await lato(conversazione, chi);
+  const limite = Math.min(Number(query.limite) || MESSAGGI_PER_PAGINA, 100);
+  return await chatRepo.trovaMessaggi(conversazione.id, query.prima_di, limite);
+}
+
+function righeAllegati(messaggioId, caricati) {
+  return caricati.map((caricato) => ({
+    messaggio_id: messaggioId,
+    nome_originale: caricato.originalname.slice(0, 255),
+    percorso: file.percorsoRelativo(caricato.path),
+    tipo_mime: caricato.mimetype,
+    dimensione: caricato.size,
+  }));
 }
 
 /**
  * Nuovo messaggio. Lo staff che risponde all'assistenza entra tra i
  * partecipanti e, se la conversazione è libera, se la prende.
- * @param {{ testo: string, risposta_a_id?: number }} dati
- * @param {{ path: string, originalname: string, mimetype: string, size: number }[]} [caricati] file di multer
+ * dati: { testo, risposta_a_id? }; caricati: file di multer.
  */
 async function invia(uuid, chi, dati, caricati = []) {
   const testo = String(dati.testo ?? '').trim();
-  if (!testo && !caricati.length)
+  if (!testo && caricati.length === 0) {
     throw richiestaNonValida('MESSAGGIO_VUOTO', 'Scrivi un messaggio o allega un file');
+  }
 
-  const conv = await trova(uuid);
-  const mioLato = await lato(conv, chi);
+  const conversazione = await conversazioneOppure404(uuid);
+  const mioLato = await lato(conversazione, chi);
 
   const id = await sequelize.transaction(async (transaction) => {
-    if (conv.tipo === 'assistenza' && mioLato === 'staff') {
-      await ConversazionePartecipante.findOrCreate({
-        where: { conversazione_id: conv.id, utente_id: chi.utenteId },
-        transaction,
-      });
-      if (!conv.assegnata_a) await conv.update({ assegnata_a: chi.utenteId }, { transaction });
+    if (conversazione.tipo === 'assistenza' && mioLato === 'staff') {
+      await chatRepo.aggiungiPartecipante(conversazione.id, chi.utenteId, transaction);
+      if (!conversazione.assegnata_a) {
+        await chatRepo.aggiornaConversazione(
+          conversazione.id,
+          { assegnata_a: chi.utenteId },
+          transaction,
+        );
+      }
     }
-    const m = await Messaggio.create(
+
+    const messaggio = await chatRepo.creaMessaggio(
       {
-        conversazione_id: conv.id,
+        conversazione_id: conversazione.id,
         mittente_utente_id: chi.utenteId ?? null,
         mittente_visitatore_id: chi.visitatoreId ?? null,
         risposta_a_id: dati.risposta_a_id ?? null,
         testo: testo || '📎',
       },
-      { transaction },
+      transaction,
     );
-    if (caricati.length)
-      await MessaggioAllegato.bulkCreate(
-        caricati.map((f) => ({
-          messaggio_id: m.id,
-          nome_originale: f.originalname.slice(0, 255),
-          percorso: file.percorsoRelativo(f.path),
-          tipo_mime: f.mimetype,
-          dimensione: f.size,
-        })),
-        { transaction },
-      );
-    return m.id;
+    if (caricati.length > 0) {
+      await chatRepo.creaAllegati(righeAllegati(messaggio.id, caricati), transaction);
+    }
+    return messaggio.id;
   });
 
   await segnaLetto(uuid, chi);
-  const messaggio = await Messaggio.findByPk(id, { include: includeMessaggio });
-  eventi.emit('messaggio', { conversazione: await trova(uuid), messaggio: messaggio.toJSON() });
+  const messaggio = await chatRepo.trovaMessaggioPerId(id);
+  const aggiornata = await conversazioneOppure404(uuid);
+  eventi.emit('messaggio', { conversazione: aggiornata.toJSON(), messaggio: messaggio.toJSON() });
   return messaggio;
 }
 
-async function proprio(id, chi) {
-  const m = oppure404(
-    await Messaggio.findByPk(id),
-    'MESSAGGIO_NON_TROVATO',
-    'Messaggio non trovato',
-  );
+async function mioMessaggio(id, chi) {
+  const messaggio = await chatRepo.trovaMessaggioPerId(id);
+  if (!messaggio) {
+    throw nonTrovato('MESSAGGIO_NON_TROVATO', 'Messaggio non trovato');
+  }
   const mio = chi.visitatoreId
-    ? m.mittente_visitatore_id === chi.visitatoreId
-    : m.mittente_utente_id === chi.utenteId;
-  if (!mio) throw vietato('MESSAGGIO_ALTRUI', 'Puoi modificare solo i tuoi messaggi');
-  return m;
+    ? messaggio.mittente_visitatore_id === chi.visitatoreId
+    : messaggio.mittente_utente_id === chi.utenteId;
+  if (!mio) {
+    throw vietato('MESSAGGIO_ALTRUI', 'Puoi modificare solo i tuoi messaggi');
+  }
+  return messaggio;
 }
 
 async function modificaMessaggio(id, chi, testo) {
-  const m = await proprio(id, chi);
-  if (!String(testo ?? '').trim())
+  await mioMessaggio(id, chi);
+  const pulito = String(testo ?? '').trim();
+  if (!pulito) {
     throw richiestaNonValida('MESSAGGIO_VUOTO', 'Il messaggio è vuoto');
-  await m.update({ testo: testo.trim(), modificato_il: new Date() });
-  return Messaggio.findByPk(id, { include: includeMessaggio });
+  }
+  await chatRepo.aggiornaMessaggio(id, { testo: pulito, modificato_il: new Date() });
+  return await chatRepo.trovaMessaggioPerId(id);
 }
 
 async function eliminaMessaggio(id, chi) {
-  await (await proprio(id, chi)).destroy();
+  await mioMessaggio(id, chi);
+  await chatRepo.eliminaMessaggio(id);
 }
 
 /** File allegato, dopo il controllo di accesso alla conversazione. */
 async function allegato(id, chi) {
-  const a = oppure404(
-    await MessaggioAllegato.findByPk(id, {
-      include: [
-        {
-          model: Messaggio,
-          as: 'messaggio',
-          include: [{ model: Conversazione, as: 'conversazione' }],
-        },
-      ],
-    }),
-    'ALLEGATO_NON_TROVATO',
-    'Allegato non trovato',
-  );
-  await lato(a.messaggio.conversazione, chi);
-  return { percorso: file.percorsoAssoluto(a.percorso), nome: a.nome_originale, tipo: a.tipo_mime };
+  const trovato = await chatRepo.trovaAllegatoPerId(id);
+  if (!trovato) {
+    throw nonTrovato('ALLEGATO_NON_TROVATO', 'Allegato non trovato');
+  }
+  await lato(trovato.messaggio.conversazione, chi);
+  return {
+    percorso: file.percorsoAssoluto(trovato.percorso),
+    nome: trovato.nome_originale,
+    tipo: trovato.tipo_mime,
+  };
 }
 
 async function segnaLetto(uuid, chi) {
-  const conv = await trova(uuid);
-  const mioLato = await lato(conv, chi);
+  const conversazione = await conversazioneOppure404(uuid);
+  const mioLato = await lato(conversazione, chi);
   const il = new Date();
-  if (mioLato === 'cliente') await conv.update({ letto_cliente_il: il });
-  else
-    await ConversazionePartecipante.update(
-      { letto_fino_al: il },
-      { where: { conversazione_id: conv.id, utente_id: chi.utenteId } },
-    );
-  eventi.emit('letto', { conversazione: conv.toJSON(), chi, il });
+  if (mioLato === 'cliente') {
+    await chatRepo.aggiornaConversazione(conversazione.id, { letto_cliente_il: il });
+  } else {
+    await chatRepo.segnaLettoPartecipante(conversazione.id, chi.utenteId, il);
+  }
+  eventi.emit('letto', { conversazione: conversazione.toJSON(), chi, il });
 }
 
-// --- apertura e gestione ----------------------------------------------------------------
+// ─────────────────────────────────────
+// Assistenza
+// ─────────────────────────────────────
 
 /**
  * Cliente o visitatore chiede assistenza. Una sola conversazione aperta per
  * interlocutore: se c'è già, il messaggio va lì.
  */
-async function apriAssistenza(chi, { testo, titolo, prenotazione_id }) {
-  if (!eCliente(chi))
-    throw richiestaNonValida('SOLO_CLIENTI', 'L’assistenza è per clienti e visitatori');
+async function apriAssistenza(chi, dati) {
+  if (!eCliente(chi)) {
+    throw richiestaNonValida('SOLO_CLIENTI', "L'assistenza è per clienti e visitatori");
+  }
   const interlocutore = chi.visitatoreId
     ? { visitatore_id: chi.visitatoreId }
     : { cliente_id: chi.utenteId };
-  const [conv] = await Conversazione.findOrCreate({
-    where: { tipo: 'assistenza', stato: 'aperta', ...interlocutore },
-    defaults: {
-      titolo: titolo ?? null,
-      prenotazione_id: prenotazione_id ?? null,
-      creata_da: chi.utenteId ?? null,
-    },
+
+  const [conversazione, nuova] = await chatRepo.trovaOCreaAssistenzaAperta(interlocutore, {
+    titolo: dati.titolo ?? null,
+    prenotazione_id: dati.prenotazione_id ?? null,
+    creata_da: chi.utenteId ?? null,
   });
-  await invia(conv.uuid, chi, { testo });
-  return dettaglio(conv.uuid, chi);
+  await invia(conversazione.uuid, chi, { testo: dati.testo });
+
+  if (nuova) {
+    await notifiche.aChiPuo(PERMESSI.CHAT_ASSISTENZA, {
+      tipo: 'chat',
+      titolo: 'Nuova richiesta di assistenza',
+      testo: String(dati.testo ?? '').slice(0, 120),
+      link: `/staff/chat/${conversazione.uuid}`,
+    });
+  }
+  return await dettaglio(conversazione.uuid, chi);
 }
 
-/**
- * Chat interna. Con un solo destinatario riapre la conversazione a due già
- * esistente. Il DB rifiuta i ruoli che non possono parlarsi (CHAT_NON_CONSENTITA).
- */
-async function apriStaff(chi, { partecipanti, titolo, testo }) {
-  const altri = [...new Set(partecipanti.map(Number))].filter((id) => id !== chi.utenteId);
-  if (!altri.length) throw richiestaNonValida('PARTECIPANTI_MANCANTI', 'Scegli con chi parlare');
-
-  if (altri.length === 1) {
-    const [esistente] = await seleziona(
-      `SELECT c.uuid FROM conversazioni c
-         JOIN conversazioni_partecipanti a ON a.conversazione_id = c.id AND a.utente_id = ? AND a.uscito_il IS NULL
-         JOIN conversazioni_partecipanti b ON b.conversazione_id = c.id AND b.utente_id = ? AND b.uscito_il IS NULL
-        WHERE c.tipo = 'staff'
-          AND (SELECT COUNT(*) FROM conversazioni_partecipanti x
-                WHERE x.conversazione_id = c.id AND x.uscito_il IS NULL) = 2
-        LIMIT 1`,
-      [chi.utenteId, altri[0]],
-    );
-    if (esistente) {
-      if (testo) await invia(esistente.uuid, chi, { testo });
-      return dettaglio(esistente.uuid, chi);
+/** Presa in carico, passaggio a un collega (utenteId) o rilascio (null). */
+async function assegna(uuid, chi, utenteId) {
+  const conversazione = await conversazioneOppure404(uuid);
+  if (conversazione.tipo !== 'assistenza' || (await lato(conversazione, chi)) !== 'staff') {
+    throw vietato('PERMESSO_NEGATO', 'Non gestisci questa conversazione');
+  }
+  if (utenteId) {
+    const collega = await utentiRepo.trovaUtentePerId(utenteId);
+    if (!collega?.attivo || !(await puoAssistere(collega.ruolo))) {
+      throw richiestaNonValida('OPERATORE_NON_VALIDO', "Il collega non gestisce l'assistenza");
     }
   }
 
-  const conv = await sequelize.transaction(async (transaction) => {
-    const c = await Conversazione.create(
-      { tipo: 'staff', titolo: titolo ?? null, creata_da: chi.utenteId },
-      { transaction },
-    );
-    // uno alla volta: il trigger confronta ogni nuovo ingresso con chi è già dentro
-    for (const utente_id of [chi.utenteId, ...altri])
-      await ConversazionePartecipante.create(
-        { conversazione_id: c.id, utente_id },
-        { transaction },
+  await chatRepo.aggiornaConversazione(conversazione.id, { assegnata_a: utenteId ?? null });
+  if (utenteId && utenteId !== chi.utenteId) {
+    await notifiche.invia([utenteId], {
+      tipo: 'chat',
+      titolo: 'Ti è stata passata una conversazione di assistenza',
+      link: `/staff/chat/${uuid}`,
+    });
+  }
+  return await dettaglio(uuid, chi);
+}
+
+/** Chiude o riapre. Un nuovo messaggio la riapre comunque (trigger). */
+async function impostaStato(uuid, chi, stato) {
+  const conversazione = await conversazioneOppure404(uuid);
+  await lato(conversazione, chi);
+  await chatRepo.aggiornaConversazione(conversazione.id, { stato });
+  return await dettaglio(uuid, chi);
+}
+
+// ─────────────────────────────────────
+// Chat interna
+// ─────────────────────────────────────
+
+// Chat diretta già esistente tra due persone (senza titolo, esattamente due membri).
+async function trovaDiretta(utenteId, altroId) {
+  const chat = await chatRepo.trovaChatStaffDiUtente(utenteId);
+  return chat.find(
+    (conversazione) =>
+      conversazione.membri.length === 2 &&
+      conversazione.membri.some((membro) => membro.utente_id === altroId),
+  );
+}
+
+/**
+ * Nuova chat interna. Con un solo destinatario riapre la diretta già
+ * esistente; con più destinatari crea un gruppo. Il DB rifiuta i ruoli che
+ * non possono parlarsi (CHAT_NON_CONSENTITA).
+ * dati: { partecipanti: id[], titolo?, testo? }
+ */
+async function apriStaff(chi, dati) {
+  const altri = [...new Set(dati.partecipanti.map(Number))].filter((id) => id !== chi.utenteId);
+  if (altri.length === 0) {
+    throw richiestaNonValida('PARTECIPANTI_MANCANTI', 'Scegli con chi parlare');
+  }
+  if (Object.values(GRUPPI_SQUADRA).includes(dati.titolo)) {
+    throw richiestaNonValida('TITOLO_RISERVATO', 'Questo nome è riservato ai gruppi di squadra');
+  }
+
+  const diretta = altri.length === 1 ? await trovaDiretta(chi.utenteId, altri[0]) : null;
+  let uuid = diretta?.uuid;
+
+  if (!uuid) {
+    const nuova = await sequelize.transaction(async (transaction) => {
+      const conversazione = await chatRepo.creaConversazione(
+        {
+          tipo: 'staff',
+          titolo: altri.length > 1 ? (dati.titolo ?? null) : null,
+          creata_da: chi.utenteId,
+        },
+        transaction,
       );
-    return c;
-  });
-  if (testo) await invia(conv.uuid, chi, { testo });
-  return dettaglio(conv.uuid, chi);
+      // Uno alla volta: il trigger confronta ogni ingresso con chi è già dentro.
+      for (const utenteId of [chi.utenteId, ...altri]) {
+        await chatRepo.aggiungiPartecipante(conversazione.id, utenteId, transaction);
+      }
+      return conversazione;
+    });
+    uuid = nuova.uuid;
+  }
+
+  if (dati.testo) {
+    await invia(uuid, chi, { testo: dati.testo });
+  }
+  return await dettaglio(uuid, chi);
+}
+
+function controllaGruppoModificabile(conversazione) {
+  if (eGruppoSquadra(conversazione)) {
+    throw richiestaNonValida(
+      'GRUPPO_DI_SQUADRA',
+      'I gruppi di squadra si aggiornano da soli in base ai ruoli',
+    );
+  }
+  if (!conversazione.titolo) {
+    throw richiestaNonValida('SOLO_GRUPPI', 'Nelle chat dirette non si aggiungono persone');
+  }
 }
 
 async function aggiungiPartecipante(uuid, chi, utenteId) {
-  const conv = await trova(uuid);
-  if (conv.tipo !== 'staff') throw richiestaNonValida('SOLO_CHAT_STAFF', 'Solo nella chat interna');
-  await lato(conv, chi);
-  const [p, nuovo] = await ConversazionePartecipante.findOrCreate({
-    where: { conversazione_id: conv.id, utente_id: utenteId },
-  });
-  if (!nuovo && p.uscito_il) {
-    // rientro: il trigger vale solo sull'insert, quindi si ricrea la riga
-    await p.destroy();
-    await ConversazionePartecipante.create({ conversazione_id: conv.id, utente_id: utenteId });
+  const conversazione = await soloChatStaff(uuid, chi);
+  controllaGruppoModificabile(conversazione);
+  await chatRepo.aggiungiPartecipante(conversazione.id, utenteId);
+  return await dettaglio(uuid, chi);
+}
+
+async function rinominaGruppo(uuid, chi, titolo) {
+  const conversazione = await soloChatStaff(uuid, chi);
+  controllaGruppoModificabile(conversazione);
+  if (Object.values(GRUPPI_SQUADRA).includes(titolo)) {
+    throw richiestaNonValida('TITOLO_RISERVATO', 'Questo nome è riservato ai gruppi di squadra');
   }
-  return dettaglio(uuid, chi);
+  await chatRepo.aggiornaConversazione(conversazione.id, { titolo });
+  return await dettaglio(uuid, chi);
 }
 
 async function esci(uuid, chi) {
-  const conv = await trova(uuid);
-  if (conv.tipo !== 'staff') throw richiestaNonValida('SOLO_CHAT_STAFF', 'Solo nella chat interna');
-  await ConversazionePartecipante.update(
-    { uscito_il: new Date() },
-    { where: { conversazione_id: conv.id, utente_id: chi.utenteId } },
-  );
+  const conversazione = await soloChatStaff(uuid, chi);
+  if (eGruppoSquadra(conversazione)) {
+    throw richiestaNonValida('GRUPPO_DI_SQUADRA', 'Non puoi uscire dal gruppo della tua squadra');
+  }
+  await chatRepo.segnaUscita(conversazione.id, chi.utenteId);
 }
-
-/** Assistenza: presa in carico / passaggio a un collega. */
-async function assegna(uuid, chi, utenteId) {
-  const conv = await trova(uuid);
-  if (conv.tipo !== 'assistenza' || (await lato(conv, chi)) !== 'staff')
-    throw vietato('PERMESSO_NEGATO', 'Non gestisci questa conversazione');
-  if (utenteId && !(await permessi.ha((await Utente.findByPk(utenteId))?.ruolo, 'chat.assistenza')))
-    throw richiestaNonValida('OPERATORE_NON_VALIDO', 'Il collega non gestisce l’assistenza');
-  await conv.update({ assegnata_a: utenteId ?? null });
-  return dettaglio(uuid, chi);
-}
-
-/** Chiude (o riapre) la conversazione. Un nuovo messaggio la riapre comunque. */
-async function impostaStato(uuid, chi, stato) {
-  const conv = await trova(uuid);
-  await lato(conv, chi);
-  await conv.update({ stato });
-  return dettaglio(uuid, chi);
-}
-
-// --- job ------------------------------------------------------------------------------
 
 /**
- * Email di riepilogo a chi ha messaggi non letti da più di 5 minuti, al massimo
- * una ogni `chat_riepilogo_email_minuti` per conversazione. Visitatori esclusi
- * (non hanno account). ponytail: 5 minuti di tolleranza fissi per chi sta chattando.
+ * Allinea i gruppi di squadra al ruolo dell'utente: entra nel gruppo della
+ * sua squadra ed esce dagli altri. L'admin è in tutti. Chiamata quando si
+ * crea un account staff o ne cambia il ruolo/stato.
  */
-async function inviaRiepiloghi() {
-  const minuti = Number(await impostazioni.leggi('chat_riepilogo_email_minuti', 60));
-  const righe = await seleziona(
-    `SELECT c.id AS conversazione_id, c.uuid, c.tipo, COALESCE(c.titolo, 'Assistenza') AS titolo,
-            u.id AS utente_id, u.email, u.nome, u.lingua, u.ruolo, COUNT(m.id) AS numero
-       FROM (SELECT id AS conv, cliente_id AS utente, letto_cliente_il AS letto
-               FROM conversazioni WHERE tipo = 'assistenza' AND cliente_id IS NOT NULL
-             UNION ALL
-             SELECT conversazione_id, utente_id, COALESCE(letto_fino_al, entrato_il)
-               FROM conversazioni_partecipanti WHERE uscito_il IS NULL) d
-       JOIN conversazioni c ON c.id = d.conv
-       JOIN utenti u ON u.id = d.utente AND u.attivo AND u.notifiche_email AND u.eliminato_il IS NULL
-       LEFT JOIN chat_riepiloghi_email r ON r.conversazione_id = d.conv AND r.utente_id = d.utente
-       JOIN messaggi m ON m.conversazione_id = d.conv AND m.eliminato_il IS NULL AND NOT m.di_sistema
-            AND (m.mittente_utente_id IS NULL OR m.mittente_utente_id <> d.utente)
-            AND m.inviato_il > COALESCE(d.letto, ${EPOCA})
-            AND m.inviato_il > COALESCE(r.inviato_il, ${EPOCA})
-      WHERE COALESCE(r.inviato_il, ${EPOCA}) < UTC_TIMESTAMP() - INTERVAL ? MINUTE
-      GROUP BY c.id, c.uuid, c.tipo, c.titolo, u.id, u.email, u.nome, u.lingua, u.ruolo
-     HAVING MIN(m.inviato_il) < UTC_TIMESTAMP() - INTERVAL 5 MINUTE`,
-    [minuti],
-  );
+async function sincronizzaSquadre(utenteId, ruolo, attivo, transaction = null) {
+  for (const [squadra, titolo] of Object.entries(GRUPPI_SQUADRA)) {
+    let gruppo = await chatRepo.trovaGruppoPerTitolo(titolo, transaction);
+    if (!gruppo) {
+      gruppo = await chatRepo.creaConversazione({ tipo: 'staff', titolo }, transaction);
+    }
 
-  for (const r of righe) {
-    const area = r.ruolo === 'cliente' ? 'area-personale/chat' : 'staff/chat';
-    await email.invia({
-      a: r.email,
-      modello: 'chat_non_letti',
-      lingua: r.lingua,
-      dati: {
-        nome: r.nome,
-        numero: r.numero,
-        titolo: r.titolo,
-        link: `${config.urlFrontend}/${area}/${r.uuid}`,
-      },
-    });
-    await ChatRiepilogoEmail.upsert({
-      conversazione_id: r.conversazione_id,
-      utente_id: r.utente_id,
-      inviato_il: new Date(),
-    });
+    const membro = ruolo === RUOLI.ADMIN || SQUADRE[squadra].includes(ruolo);
+    if (membro && attivo) {
+      await chatRepo.aggiungiPartecipante(gruppo.id, utenteId, transaction);
+    } else {
+      await chatRepo.segnaUscita(gruppo.id, utenteId, transaction);
+    }
   }
-  return { inviati: righe.length };
 }
 
-/** Elimina le conversazioni chiuse ferme da più di `chat_conservazione_giorni` (con i file). */
+// ─────────────────────────────────────
+// Esportazione PDF (solo staff)
+// ─────────────────────────────────────
+
+async function esportaPdf(uuid, chi) {
+  const conversazione = await conversazioneOppure404(uuid);
+  if ((await lato(conversazione, chi)) !== 'staff') {
+    throw vietato('PERMESSO_NEGATO', 'Solo lo staff può esportare la conversazione');
+  }
+  const tutti = await chatRepo.trovaTuttiIMessaggi(conversazione.id);
+  const nomeStruttura = await impostazioni.leggi('struttura_nome');
+  return await creaPdf(documentoChat(conversazione, tutti, nomeStruttura));
+}
+
+// ─────────────────────────────────────
+// Job
+// ─────────────────────────────────────
+
+// Chi riceve le email della conversazione, con da quando ha letto.
+function destinatariEmail(conversazione) {
+  const destinatari = [];
+  if (conversazione.cliente) {
+    destinatari.push({ utente: conversazione.cliente, letto: conversazione.letto_cliente_il });
+  }
+  for (const membro of conversazione.membri) {
+    destinatari.push({ utente: membro.utente, letto: membro.letto_fino_al ?? membro.entrato_il });
+  }
+  return destinatari.filter(({ utente }) => utente?.attivo && utente.notifiche_email);
+}
+
+function maggiore(a, b) {
+  if (!a) {
+    return b;
+  }
+  if (!b) {
+    return a;
+  }
+  return new Date(a) > new Date(b) ? a : b;
+}
+
+/**
+ * Email di riepilogo a chi ha messaggi non letti da più di 5 minuti, al
+ * massimo una ogni `chat_riepilogo_email_minuti` per conversazione.
+ * I visitatori non hanno account e restano esclusi.
+ * ponytail: guarda solo le conversazioni con messaggi nelle ultime 24 ore.
+ */
+async function inviaRiepiloghi() {
+  const intervallo = await impostazioni.leggi('chat_riepilogo_email_minuti', 60);
+  const conversazioni = await chatRepo.trovaConMessaggiDal(minutiFa(24 * 60));
+  let inviati = 0;
+
+  for (const conversazione of conversazioni) {
+    for (const { utente, letto } of destinatariEmail(conversazione)) {
+      const ultimo = await chatRepo.trovaUltimoRiepilogo(conversazione.id, utente.id);
+      if (ultimo && ultimo.inviato_il > minutiFa(intervallo)) {
+        continue;
+      }
+      const dal = maggiore(letto, ultimo?.inviato_il);
+      const numero = await chatRepo.contaNonLetti(
+        conversazione.id,
+        { utenteId: utente.id },
+        dal,
+        minutiFa(MINUTI_TOLLERANZA_EMAIL),
+      );
+      if (numero === 0) {
+        continue;
+      }
+
+      const area = utente.ruolo === RUOLI.CLIENTE ? 'area-personale/chat' : 'staff/chat';
+      await email.invia({
+        a: utente.email,
+        modello: 'chat_non_letti',
+        lingua: utente.lingua,
+        dati: {
+          nome: utente.nome,
+          numero,
+          titolo: conversazione.titolo ?? 'Assistenza',
+          link: `${config.urlFrontend}/${area}/${conversazione.uuid}`,
+        },
+      });
+      await chatRepo.salvaRiepilogo(conversazione.id, utente.id);
+      inviati += 1;
+    }
+  }
+  return { inviati };
+}
+
+/** Elimina le conversazioni chiuse ferme da più di `chat_conservazione_giorni`, con i file. */
 async function eliminaVecchie() {
-  const giorni = Number(await impostazioni.leggi('chat_conservazione_giorni', 365));
-  const vecchie = await seleziona(
-    `SELECT id FROM conversazioni
-      WHERE stato = 'chiusa'
-        AND COALESCE(ultimo_messaggio_il, creato_il) < UTC_TIMESTAMP() - INTERVAL ? DAY`,
-    [giorni],
-  );
-  if (!vecchie.length) return { eliminate: 0 };
-  const ids = vecchie.map((c) => c.id);
-  const allegati = await MessaggioAllegato.findAll({
-    include: [
-      { model: Messaggio, as: 'messaggio', where: { conversazione_id: ids }, paranoid: false },
-    ],
-    attributes: ['percorso'],
-  });
-  // messaggi, partecipanti e riepiloghi vanno via in cascata
-  await Conversazione.destroy({ where: { id: ids } });
-  for (const a of allegati) await file.elimina(a.percorso);
+  const giorni = await impostazioni.leggi('chat_conservazione_giorni', 365);
+  const vecchie = await chatRepo.trovaChiusePrimaDel(minutiFa(giorni * 24 * 60));
+  if (vecchie.length === 0) {
+    return { eliminate: 0 };
+  }
+
+  const ids = vecchie.map((conversazione) => conversazione.id);
+  const percorsi = await chatRepo.trovaPercorsiAllegati(ids);
+  await chatRepo.eliminaConversazioni(ids);
+  for (const percorso of percorsi) {
+    await file.elimina(percorso);
+  }
   logger.info('Conversazioni eliminate per conservazione', { numero: ids.length });
   return { eliminate: ids.length };
 }
 
 module.exports = {
   eventi,
+  impostaPresenza,
+  presenzaDi,
+  statoAssistenza,
   lato,
   elenco,
   dettaglio,
@@ -508,11 +664,14 @@ module.exports = {
   allegato,
   segnaLetto,
   apriAssistenza,
-  apriStaff,
-  aggiungiPartecipante,
-  esci,
   assegna,
   impostaStato,
+  apriStaff,
+  aggiungiPartecipante,
+  rinominaGruppo,
+  esci,
+  sincronizzaSquadre,
+  esportaPdf,
   inviaRiepiloghi,
   eliminaVecchie,
 };
