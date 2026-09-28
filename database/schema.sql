@@ -521,6 +521,7 @@ CREATE TABLE ospiti (
   cittadinanza_codice     CHAR(9)       NULL,
   stato_nascita_codice    CHAR(9)       NULL,
   comune_nascita_codice   CHAR(9)       NULL,   -- solo per i nati in Italia
+  provincia_nascita       CHAR(2)       NULL,   -- sigla, solo per i nati in Italia
   tipo_documento          VARCHAR(5)    NULL,   -- IDENT, PASOR, PATEN...
   numero_documento        VARCHAR(30)   NULL,
   luogo_rilascio_codice   CHAR(9)       NULL,
@@ -1912,6 +1913,8 @@ INSERT INTO impostazioni (chiave, valore, tipo, gruppo, descrizione, pubblica) V
   ('struttura_email',             '',          'testo',    'struttura',     'Email di contatto', TRUE),
   ('struttura_telefono',          '',          'testo',    'struttura',     'Telefono di contatto', TRUE),
   ('struttura_cin',               '',          'testo',    'struttura',     'Codice Identificativo Nazionale (obbligatorio negli annunci)', TRUE),
+  ('struttura_iban',              '',          'testo',    'struttura',     'IBAN per i bonifici (mostrato al cliente)', TRUE),
+  ('struttura_intestatario_conto', '',          'testo',    'struttura',     'Intestatario del conto per i bonifici', TRUE),
   -- soggiorno e prenotazioni
   ('orario_checkin',              '15:00',     'testo',    'soggiorno',     'Orario di inizio check-in', TRUE),
   ('orario_checkout',             '10:00',     'testo',    'soggiorno',     'Orario limite check-out', TRUE),

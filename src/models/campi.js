@@ -14,9 +14,9 @@ const PERCENTUALE = T.DECIMAL(5, 2);
 const id = (tipo = T.INTEGER.UNSIGNED) => ({ type: tipo, primaryKey: true, autoIncrement: true });
 
 /** Chiave esterna o riferimento a un id. */
-const rif = (obbligatorio = false, tipo = T.INTEGER.UNSIGNED) => ({
+const rif = (richiesto = false, tipo = T.INTEGER.UNSIGNED) => ({
   type: tipo,
-  allowNull: !obbligatorio,
+  allowNull: !richiesto,
 });
 
 /** Colonna NOT NULL, con l'eventuale DEFAULT del database. */
