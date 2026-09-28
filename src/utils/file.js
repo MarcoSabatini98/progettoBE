@@ -38,4 +38,4 @@ async function elimina(relativo) {
   }
 }
 
-module.exports = { radice, percorsoAssoluto, percorsoRelativo, salva, elimina };
+module.exports = { percorsoAssoluto, percorsoRelativo, salva, elimina };

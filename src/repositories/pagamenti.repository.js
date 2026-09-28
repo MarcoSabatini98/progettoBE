@@ -5,6 +5,7 @@
 
 const { Op } = require('sequelize');
 const { Pagamento, Prenotazione, Utente, EventoWebhook } = require('../models');
+const { aggiungiOre } = require('../utils/date');
 const { METODI_ONLINE } = require('../constants/pagamenti.constants');
 
 // ─────────────────────────────────────
@@ -105,7 +106,7 @@ const assegnaDocumentoFiscale = async (prenotazioneId, documento, transaction) =
 
 // Checkout online aperti da più di 24 ore: l'utente non li ha conclusi.
 const annullaCheckoutAbbandonati = async (transaction) => {
-  const ieri = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const ieri = aggiungiOre(new Date(), -24);
   const [numero] = await Pagamento.update(
     { stato: 'annullato', note: 'Checkout non completato' },
     {

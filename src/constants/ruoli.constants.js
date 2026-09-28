@@ -10,14 +10,6 @@ const RUOLI = Object.freeze({
   CLIENTE: 'cliente',
 });
 
-// Tutto il personale della struttura.
-const RUOLI_STAFF = Object.freeze([
-  RUOLI.ADMIN,
-  RUOLI.RECEPTIONIST,
-  RUOLI.HOUSEKEEPER_SENIOR,
-  RUOLI.HOUSEKEEPER,
-]);
-
 // Ruoli che l'admin può assegnare a un account staff. L'admin non è
 // assegnabile da API (si crea solo da seed) per evitare escalation.
 const RUOLI_ASSEGNABILI = Object.freeze([
@@ -61,4 +53,4 @@ const PERMESSI = Object.freeze({
 
 const TIPI_TOKEN = Object.freeze(['refresh', 'verifica_email', 'reset_password']);
 
-module.exports = { RUOLI, RUOLI_STAFF, RUOLI_ASSEGNABILI, SQUADRE, PERMESSI, TIPI_TOKEN };
+module.exports = { RUOLI, RUOLI_ASSEGNABILI, SQUADRE, PERMESSI, TIPI_TOKEN };

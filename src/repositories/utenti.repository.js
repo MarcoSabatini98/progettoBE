@@ -137,10 +137,6 @@ const trovaRuoli = async () => {
   return await Ruolo.findAll({ order: [['codice', 'ASC']] });
 };
 
-const trovaRuolo = async (codice) => {
-  return await Ruolo.findByPk(codice);
-};
-
 // ─────────────────────────────────────
 // Documenti del cliente
 // ─────────────────────────────────────
@@ -164,6 +160,5 @@ module.exports = {
   aggiornaUtente,
   eliminaUtente,
   trovaRuoli,
-  trovaRuolo,
   trovaDocumentoDiOspite,
 };
