@@ -26,6 +26,7 @@ const { RUOLI, SQUADRE, PERMESSI } = require('../constants/ruoli.constants');
 const { GRUPPI_SQUADRA, STATI_PRESENZA } = require('../constants/chat.constants');
 const { nonTrovato, vietato, richiestaNonValida } = require('../utils/errori');
 const { pagina, risultato } = require('../utils/paginazione');
+const { aggiungiMinuti, aggiungiOre } = require('../utils/date');
 
 // 'messaggio' → { conversazione, messaggio }
 // 'letto'     → { conversazione, chi, il }
@@ -41,10 +42,6 @@ function eCliente(chi) {
 
 function eGruppoSquadra(conversazione) {
   return Object.values(GRUPPI_SQUADRA).includes(conversazione.titolo);
-}
-
-function minutiFa(minuti) {
-  return new Date(Date.now() - minuti * 60 * 1000);
 }
 
 // ─────────────────────────────────────
@@ -591,13 +588,13 @@ function maggiore(a, b) {
  */
 async function inviaRiepiloghi() {
   const intervallo = await impostazioni.leggi('chat_riepilogo_email_minuti', 60);
-  const conversazioni = await chatRepo.trovaConMessaggiDal(minutiFa(24 * 60));
+  const conversazioni = await chatRepo.trovaConMessaggiDal(aggiungiOre(new Date(), -24));
   let inviati = 0;
 
   for (const conversazione of conversazioni) {
     for (const { utente, letto } of destinatariEmail(conversazione)) {
       const ultimo = await chatRepo.trovaUltimoRiepilogo(conversazione.id, utente.id);
-      if (ultimo && ultimo.inviato_il > minutiFa(intervallo)) {
+      if (ultimo && ultimo.inviato_il > aggiungiMinuti(new Date(), -intervallo)) {
         continue;
       }
       const dal = maggiore(letto, ultimo?.inviato_il);
@@ -605,7 +602,7 @@ async function inviaRiepiloghi() {
         conversazione.id,
         { utenteId: utente.id },
         dal,
-        minutiFa(MINUTI_TOLLERANZA_EMAIL),
+        aggiungiMinuti(new Date(), -MINUTI_TOLLERANZA_EMAIL),
       );
       if (numero === 0) {
         continue;
@@ -633,7 +630,7 @@ async function inviaRiepiloghi() {
 /** Elimina le conversazioni chiuse ferme da più di `chat_conservazione_giorni`, con i file. */
 async function eliminaVecchie() {
   const giorni = await impostazioni.leggi('chat_conservazione_giorni', 365);
-  const vecchie = await chatRepo.trovaChiusePrimaDel(minutiFa(giorni * 24 * 60));
+  const vecchie = await chatRepo.trovaChiusePrimaDel(aggiungiOre(new Date(), -giorni * 24));
   if (vecchie.length === 0) {
     return { eliminate: 0 };
   }

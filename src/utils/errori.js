@@ -34,19 +34,12 @@ const servizioNonDisponibile = (codice, messaggio) => new ErroreApp(503, codice,
 
 const nonTrovato = (codice, messaggio) => new ErroreApp(404, codice, messaggio);
 
-/** Restituisce il record o lancia 404: evita un if in ogni service. */
-function oppure404(record, codice, messaggio) {
-  if (!record) throw nonTrovato(codice, messaggio);
-  return record;
-}
-
 module.exports = {
   ErroreApp,
   richiestaNonValida,
   nonAutenticato,
   vietato,
   nonTrovato,
-  oppure404,
   conflitto,
   nonElaborabile,
   servizioNonDisponibile,

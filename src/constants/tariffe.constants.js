@@ -10,13 +10,9 @@ const TIPI_SCONTO = Object.freeze(['percentuale', 'importo']);
 
 const MOTIVI_PUNTI = Object.freeze(['soggiorno', 'bonus', 'rettifica', 'annullamento']);
 
-// Livelli fedeltà in ordine crescente (tabella livelli_fedelta).
-const LIVELLI_FEDELTA = Object.freeze(['bronze', 'silver', 'gold', 'platinum', 'diamond']);
-
 module.exports = {
   TIPI_VARIAZIONE_PIANO,
   TIPI_VARIAZIONE_PERIODO,
   TIPI_SCONTO,
   MOTIVI_PUNTI,
-  LIVELLI_FEDELTA,
 };

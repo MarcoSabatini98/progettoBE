@@ -10,11 +10,4 @@ const tokenCasuale = (byte = 32) => crypto.randomBytes(byte).toString('base64url
 /** Codice numerico a 6 cifre (verifica email). */
 const codiceNumerico = () => String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
 
-/** Confronto a tempo costante tra due stringhe esadecimali della stessa lunghezza. */
-function ugualiSicuri(a, b) {
-  const ba = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
-}
-
-module.exports = { hash, tokenCasuale, codiceNumerico, ugualiSicuri, uuid: crypto.randomUUID };
+module.exports = { hash, tokenCasuale, codiceNumerico, uuid: crypto.randomUUID };

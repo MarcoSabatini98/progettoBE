@@ -6,6 +6,7 @@
 
 const { Op } = require('sequelize');
 const { TokenUtente, Visitatore, Consenso, DocumentoLegale } = require('../models');
+const { aggiungiOre } = require('../utils/date');
 
 // ─────────────────────────────────────
 // Token
@@ -63,7 +64,7 @@ const revocaTokenUtente = async (utenteId, tipo, transaction = null) => {
 
 // Pulizia periodica: token scaduti da più di un giorno.
 const eliminaTokenScaduti = async () => {
-  const ieri = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const ieri = aggiungiOre(new Date(), -24);
   return await TokenUtente.destroy({ where: { scade_il: { [Op.lt]: ieri } } });
 };
 
