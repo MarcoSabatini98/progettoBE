@@ -1932,6 +1932,7 @@ INSERT INTO impostazioni (chiave, valore, tipo, gruppo, descrizione, pubblica) V
   -- fedeltà e pulizie
   ('fedelta_punti_per_notte',     '10',        'numero',   'fedelta',       'Punti fedeltà assegnati per ogni notte di soggiorno concluso', TRUE),
   ('pulizie_richiedi_ispezione',  '1',         'booleano', 'pulizie',       'Le camere pulite restano da ispezionare finché il responsabile non verifica', FALSE),
+  ('pulizie_autoassegna',         '0',         'booleano', 'pulizie',       'Ogni mattina assegna le pulizie libere agli addetti con meno attività', FALSE),
   -- localizzazione
   ('fuso_orario',                 'Europe/Rome', 'testo',  'localizzazione','Fuso orario della struttura', TRUE),
   ('lingua_predefinita',          'it',        'testo',    'localizzazione','Lingua predefinita del sito', TRUE),
