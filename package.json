@@ -20,6 +20,8 @@
     "test:integration": "jest --selectProjects integration --runInBand --passWithNoTests",
     "test:coverage": "jest --coverage --runInBand",
     "db:crea": "node database/crea-database.js",
+    "db:seed": "node database/seed-base.js",
+    "db:seed:prova": "node database/seed-prova.js",
     "prepare": "husky"
   },
   "jest": {
