@@ -46,10 +46,10 @@ function link(id) {
 /** Chi non gestisce la manutenzione vede solo le segnalazioni fatte o assegnate a sé. */
 async function elenco(query, contesto) {
   const p = pagina(query);
-  const soloMie = query.mie === 'true' || !(await puoGestire(contesto));
+  const soloMie = query.mie === true || !(await puoGestire(contesto));
   const filtri = {
     stato: query.stato,
-    aperte: query.aperte === 'true',
+    aperte: query.aperte === true,
     priorita: query.priorita,
     camera_id: query.camera_id,
     utenteId: soloMie ? contesto.utenteId : null,

@@ -120,12 +120,12 @@ async function eliminaVoce(id) {
 // Attività
 // ─────────────────────────────────────
 
-/** Attività del giorno (default oggi). `mie=true` → solo quelle assegnate a me. */
+/** Attività del giorno (default oggi). `mie` → solo quelle assegnate a me. */
 async function elenco(query, contesto) {
   const filtri = {
     stato: query.stato,
     camera_id: query.camera_id,
-    assegnata_a: query.mie === 'true' ? contesto.utenteId : query.assegnata_a,
+    assegnata_a: query.mie === true ? contesto.utenteId : query.assegnata_a,
   };
   return await pulizieRepo.trovaAttivitaDelGiorno(query.data ?? oggi(), filtri);
 }

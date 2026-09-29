@@ -9,6 +9,7 @@ const impostazioni = require('./impostazioni.service');
 const { nonTrovato, richiestaNonValida } = require('../utils/errori');
 const { applicaTraduzioni } = require('../utils/traduzioni');
 const file = require('../utils/file');
+const { CAMPI_TRADUCIBILI } = require('../constants/sistema.constants');
 
 // ─────────────────────────────────────
 // Traduzioni (area admin)
@@ -39,6 +40,18 @@ async function salvaTraduzioni(entita, entitaId, perLingua) {
     throw richiestaNonValida(
       'LINGUA_NON_ATTIVA',
       `Lingue non attive o non traducibili: ${nonAmmesse.join(', ')}`,
+    );
+  }
+
+  const campiAmmessi = CAMPI_TRADUCIBILI[entita];
+  const campiInviati = Object.values(perLingua).flatMap((campi) => Object.keys(campi));
+  const campiNonAmmessi = [...new Set(campiInviati)].filter(
+    (campo) => !campiAmmessi.includes(campo),
+  );
+  if (campiNonAmmessi.length > 0) {
+    throw richiestaNonValida(
+      'CAMPO_NON_TRADUCIBILE',
+      `Campi non traducibili: ${campiNonAmmessi.join(', ')}`,
     );
   }
 

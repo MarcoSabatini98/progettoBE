@@ -135,7 +135,7 @@ async function linkEsportazione() {
     camera_id: camera.id,
     numero: camera.numero,
     nome: camera.nome,
-    url: camera.token_ical ? `${config.urlApp}/api/ical/${camera.token_ical}.ics` : null,
+    url: camera.token_ical ? `${config.urlApp}/api/calendari/feed/${camera.token_ical}.ics` : null,
   }));
 }
 

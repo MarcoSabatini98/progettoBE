@@ -23,6 +23,16 @@ const AZIONI_REGISTRO = Object.freeze(['inserimento', 'modifica', 'eliminazione'
 // Tabelle scritte dai trigger di audit.
 const TABELLE_REGISTRO = Object.freeze(['prenotazioni', 'pagamenti', 'fatture']);
 
+// Campi traducibili per entità: solo testi. applicaTraduzioni sostituisce
+// qualunque campo del record, quindi niente prezzi o id tra questi.
+const CAMPI_TRADUCIBILI = Object.freeze({
+  tipologia_camera: Object.freeze(['nome', 'descrizione', 'letti']),
+  servizio: Object.freeze(['nome', 'descrizione']),
+  pacchetto: Object.freeze(['nome', 'descrizione']),
+  promozione: Object.freeze(['nome', 'descrizione']),
+  faq: Object.freeze(['domanda', 'risposta']),
+});
+
 module.exports = {
   TIPI_IMPOSTAZIONE,
   TIPI_DOCUMENTO_LEGALE,
@@ -31,4 +41,5 @@ module.exports = {
   TIPI_EVENTO_SPECIALE,
   AZIONI_REGISTRO,
   TABELLE_REGISTRO,
+  CAMPI_TRADUCIBILI,
 };
