@@ -56,6 +56,8 @@ app.use(
 
 app.get('/salute', (req, res) => inviaSuccesso(res, 200, { stato: 'ok' }));
 
+app.use('/api', require('./src/routes'));
+
 app.use(rottaNonTrovata);
 app.use(gestoreErrori);
 

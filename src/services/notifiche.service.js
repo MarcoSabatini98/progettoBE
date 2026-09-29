@@ -66,7 +66,7 @@ async function nonLette(utenteId) {
 
 async function elenco(utenteId, query = {}) {
   const p = pagina(query);
-  const soloNonLette = query.non_lette === true || query.non_lette === 'true';
+  const soloNonLette = query.non_lette === true;
   const trovate = await notificheRepo.trovaNotificheUtente(utenteId, soloNonLette, p);
   return { ...risultato(trovate, p), non_lette: await nonLette(utenteId) };
 }
