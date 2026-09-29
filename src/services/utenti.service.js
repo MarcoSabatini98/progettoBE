@@ -128,22 +128,21 @@ async function anagraficaDelCliente(utenteId) {
   return utente.ospite_id;
 }
 
-/** caricato = file ricevuto da multer. */
+/**
+ * caricato = file ricevuto da multer. Se la richiesta viene rifiutata il file
+ * lo elimina il gestore degli errori.
+ */
 async function aggiungiDocumento(utenteId, caricato) {
-  const percorso = file.percorsoRelativo(caricato.path);
-
-  let ospiteId;
-  try {
-    ospiteId = await anagraficaDelCliente(utenteId);
-  } catch (errore) {
-    await file.elimina(percorso);
-    throw errore;
+  if (!caricato) {
+    throw richiestaNonValida('FILE_MANCANTE', 'Allega il file');
   }
+
+  const ospiteId = await anagraficaDelCliente(utenteId);
 
   return await ospitiRepo.creaDocumento({
     ospite_id: ospiteId,
     nome_originale: caricato.originalname.slice(0, 255),
-    percorso,
+    percorso: file.percorsoRelativo(caricato.path),
     tipo_mime: caricato.mimetype,
     dimensione: caricato.size,
   });

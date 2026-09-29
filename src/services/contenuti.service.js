@@ -71,6 +71,10 @@ async function aggiungiMedia(
   { entita, entitaId = null, testoAlternativo = '', ordine = 0 },
   caricato,
 ) {
+  if (!caricato) {
+    throw richiestaNonValida('FILE_MANCANTE', 'Allega il file');
+  }
+
   return await contenutiRepo.creaMedia({
     entita,
     entita_id: entitaId,
