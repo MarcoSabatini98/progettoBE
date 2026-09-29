@@ -448,6 +448,21 @@ async function verificaVisitatore(token) {
   return visitatore;
 }
 
+/**
+ * Chi usa la chat: utente collegato oppure visitatore del sito. I due token
+ * sono firmati con segreti diversi: il campo "tipo" (letto senza verifica)
+ * dice solo con quale segreto verificarlo.
+ * Restituisce { utenteId, ruolo } oppure { visitatoreId }.
+ */
+async function verificaChat(token) {
+  if (jwt.decode(token)?.tipo === 'visitatore') {
+    const visitatore = await verificaVisitatore(token);
+    return { visitatoreId: visitatore.id };
+  }
+  const payload = verificaAccess(token);
+  return { utenteId: payload.id, ruolo: payload.ruolo };
+}
+
 /** Job: elimina i token scaduti da tempo. */
 async function eliminaTokenScaduti() {
   return await authRepo.eliminaTokenScaduti();
@@ -470,5 +485,6 @@ module.exports = {
   verificaAccess,
   creaVisitatore,
   verificaVisitatore,
+  verificaChat,
   eliminaTokenScaduti,
 };

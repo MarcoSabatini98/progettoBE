@@ -28,9 +28,12 @@ const { nonTrovato, vietato, richiestaNonValida } = require('../utils/errori');
 const { pagina, risultato } = require('../utils/paginazione');
 const { aggiungiMinuti, aggiungiOre } = require('../utils/date');
 
-// 'messaggio' → { conversazione, messaggio }
-// 'letto'     → { conversazione, chi, il }
-// 'presenza'  → { utenteId, stato }
+// 'messaggio'            → { conversazione, messaggio }
+// 'messaggio_modificato' → { conversazione, messaggio }
+// 'messaggio_eliminato'  → { conversazione, messaggioId }
+// 'letto'                → { conversazione, chi, il }
+// 'conversazione'        → { conversazione } (assegnata, chiusa, rinominata, membri cambiati)
+// 'presenza'             → { utenteId, stato }
 const eventi = new EventEmitter();
 
 const MINUTI_TOLLERANZA_EMAIL = 5;
@@ -65,6 +68,11 @@ function impostaPresenza(utenteId, stato) {
 
 function presenzaDi(utenteId) {
   return presenze.get(utenteId) ?? 'offline';
+}
+
+/** Tutto lo staff non offline, per chi si collega al socket. */
+function presenzeStaff() {
+  return [...presenze].map(([utenteId, stato]) => ({ utente_id: utenteId, stato }));
 }
 
 /** Per il widget del sito: c'è qualcuno dello staff pronto a rispondere? */
@@ -113,6 +121,19 @@ async function lato(conversazione, chi) {
     return 'staff';
   }
   throw vietato('CONVERSAZIONE_NON_ACCESSIBILE', 'Non partecipi a questa conversazione');
+}
+
+/** La conversazione, se `chi` può starci (per il socket: "sta scrivendo"). */
+async function accessibile(uuid, chi) {
+  const conversazione = await conversazioneOppure404(uuid);
+  await lato(conversazione, chi);
+  return conversazione;
+}
+
+/** Avvisa il socket che la conversazione è cambiata. */
+async function annunciaConversazione(id) {
+  const conversazione = await chatRepo.trovaConversazionePerId(id);
+  eventi.emit('conversazione', { conversazione: conversazione.toJSON() });
 }
 
 async function soloChatStaff(uuid, chi) {
@@ -325,12 +346,23 @@ async function modificaMessaggio(id, chi, testo) {
     throw richiestaNonValida('MESSAGGIO_VUOTO', 'Il messaggio è vuoto');
   }
   await chatRepo.aggiornaMessaggio(id, { testo: pulito, modificato_il: new Date() });
-  return await chatRepo.trovaMessaggioPerId(id);
+  const messaggio = await chatRepo.trovaMessaggioPerId(id);
+  const conversazione = await chatRepo.trovaConversazionePerId(messaggio.conversazione_id);
+  eventi.emit('messaggio_modificato', {
+    conversazione: conversazione.toJSON(),
+    messaggio: messaggio.toJSON(),
+  });
+  return messaggio;
 }
 
 async function eliminaMessaggio(id, chi) {
-  await mioMessaggio(id, chi);
+  const messaggio = await mioMessaggio(id, chi);
   await chatRepo.eliminaMessaggio(id);
+  const conversazione = await chatRepo.trovaConversazionePerId(messaggio.conversazione_id);
+  eventi.emit('messaggio_eliminato', {
+    conversazione: conversazione.toJSON(),
+    messaggioId: messaggio.id,
+  });
 }
 
 /** File allegato, dopo il controllo di accesso alla conversazione. */
@@ -414,6 +446,7 @@ async function assegna(uuid, chi, utenteId) {
       link: `/staff/chat/${uuid}`,
     });
   }
+  await annunciaConversazione(conversazione.id);
   return await dettaglio(uuid, chi);
 }
 
@@ -422,6 +455,7 @@ async function impostaStato(uuid, chi, stato) {
   const conversazione = await conversazioneOppure404(uuid);
   await lato(conversazione, chi);
   await chatRepo.aggiornaConversazione(conversazione.id, { stato });
+  await annunciaConversazione(conversazione.id);
   return await dettaglio(uuid, chi);
 }
 
@@ -474,6 +508,7 @@ async function apriStaff(chi, dati) {
       return conversazione;
     });
     uuid = nuova.uuid;
+    await annunciaConversazione(nuova.id);
   }
 
   if (dati.testo) {
@@ -498,6 +533,7 @@ async function aggiungiPartecipante(uuid, chi, utenteId) {
   const conversazione = await soloChatStaff(uuid, chi);
   controllaGruppoModificabile(conversazione);
   await chatRepo.aggiungiPartecipante(conversazione.id, utenteId);
+  await annunciaConversazione(conversazione.id);
   return await dettaglio(uuid, chi);
 }
 
@@ -508,6 +544,7 @@ async function rinominaGruppo(uuid, chi, titolo) {
     throw richiestaNonValida('TITOLO_RISERVATO', 'Questo nome è riservato ai gruppi di squadra');
   }
   await chatRepo.aggiornaConversazione(conversazione.id, { titolo });
+  await annunciaConversazione(conversazione.id);
   return await dettaglio(uuid, chi);
 }
 
@@ -517,6 +554,7 @@ async function esci(uuid, chi) {
     throw richiestaNonValida('GRUPPO_DI_SQUADRA', 'Non puoi uscire dal gruppo della tua squadra');
   }
   await chatRepo.segnaUscita(conversazione.id, chi.utenteId);
+  await annunciaConversazione(conversazione.id);
 }
 
 /**
@@ -649,8 +687,10 @@ module.exports = {
   eventi,
   impostaPresenza,
   presenzaDi,
+  presenzeStaff,
   statoAssistenza,
   lato,
+  accessibile,
   elenco,
   dettaglio,
   totaleNonLetti,
