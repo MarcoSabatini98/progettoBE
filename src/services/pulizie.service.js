@@ -338,6 +338,15 @@ async function autoassegna(giorno = oggi()) {
   return { assegnate: libere.length, non_assegnate: 0 };
 }
 
+/** Job del mattino: attività del giorno e, se attiva l'impostazione, assegnazione automatica. */
+async function preparaGiornata() {
+  const giornata = await generaGiornata();
+  if (!(await impostazioni.leggi('pulizie_autoassegna', false))) {
+    return giornata;
+  }
+  return { ...giornata, ...(await autoassegna()) };
+}
+
 module.exports = {
   checklistPer,
   vociChecklist,
@@ -352,4 +361,5 @@ module.exports = {
   avanza,
   generaGiornata,
   autoassegna,
+  preparaGiornata,
 };

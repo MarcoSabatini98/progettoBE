@@ -9,8 +9,10 @@
 const alloggiatiRepo = require('../repositories/alloggiati.repository');
 const ospitiRepo = require('../repositories/ospiti.repository');
 const { campiMancanti } = require('./ospiti.service');
+const notifiche = require('./notifiche.service');
 const { schedina } = require('./helpers/schedina-alloggiati');
 const { TIPI_CON_DOCUMENTO } = require('../constants/prenotazioni.constants');
+const { PERMESSI } = require('../constants/ruoli.constants');
 const { oggi, aggiungiGiorni } = require('../utils/date');
 const { nonTrovato, nonElaborabile } = require('../utils/errori');
 
@@ -128,4 +130,19 @@ async function daInviare() {
     }));
 }
 
-module.exports = { daPrenotazione, file, registraInvio, daInviare };
+/** Job: avvisa chi invia le schedine se ci sono soggiorni ancora da inviare. */
+async function avvisaDaInviare() {
+  const soggiorni = await daInviare();
+  if (soggiorni.length > 0) {
+    await notifiche.aChiPuo(PERMESSI.ALLOGGIATI_INVIA, {
+      tipo: 'sistema',
+      priorita: 'avviso',
+      titolo: `Alloggiati Web: ${soggiorni.length} soggiorni da inviare`,
+      testo: "Le schedine vanno inviate entro 24 ore dall'arrivo",
+      link: '/staff/alloggiati',
+    });
+  }
+  return { da_inviare: soggiorni.length };
+}
+
+module.exports = { daPrenotazione, file, registraInvio, daInviare, avvisaDaInviare };

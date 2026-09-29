@@ -1,8 +1,8 @@
 // server.js
 //
-// Avvio: verifica la connessione al database, poi apre la porta (API e socket).
-// Allo spegnimento (deploy su Render, Ctrl+C) chiude prima i socket e le
-// richieste in corso, poi le connessioni al database.
+// Avvio: verifica la connessione al database, pianifica i job, poi apre la
+// porta (API e socket). Allo spegnimento (deploy su Render, Ctrl+C) ferma i
+// job, chiude i socket e le richieste in corso, poi il database.
 
 const http = require('node:http');
 const config = require('./src/config/env');
@@ -10,6 +10,7 @@ const logger = require('./src/config/logger');
 const { sequelize } = require('./src/models');
 const app = require('./app');
 const { avviaSocket, chiudiSocket } = require('./src/socket');
+const { avviaJob, fermaJob } = require('./src/jobs');
 
 // Oltre questo tempo lo spegnimento viene forzato.
 const ATTESA_MASSIMA_MS = 10_000;
@@ -22,6 +23,7 @@ async function avvia() {
   try {
     await sequelize.authenticate();
     logger.info('Connessione al database riuscita');
+    await avviaJob();
   } catch (errore) {
     logger.error('Connessione al database non riuscita', { errore: errore.message });
     process.exit(1);
@@ -48,6 +50,7 @@ async function chiudi(segnale) {
   try {
     // io.close chiude anche il server HTTP e aspetta le richieste in corso:
     // il server.close qui sotto trova ERR_SERVER_NOT_RUNNING e lo ignora.
+    await fermaJob();
     await chiudiSocket();
     await new Promise((risolvi, rifiuta) => {
       server.close((errore) =>
