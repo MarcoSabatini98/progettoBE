@@ -12,7 +12,6 @@
 // Il ruolo arriva dal token: un cambio di ruolo vale dal rinnovo successivo
 // della sessione (al massimo JWT_ACCESS_DURATA, 15 minuti).
 
-const jwt = require('jsonwebtoken');
 const authService = require('../services/auth.service');
 const { nonAutenticato } = require('../utils/errori');
 
@@ -49,22 +48,13 @@ function accessoFacoltativo(req, res, next) {
   return next();
 }
 
-/**
- * I due token sono firmati con segreti diversi: il campo "tipo" (letto
- * senza verifica) dice solo con quale segreto verificarlo.
- */
+/** Stesso controllo del socket: vedi authService.verificaChat. */
 async function richiediChat(req, res, next) {
   const token = tokenDallaRichiesta(req);
   if (!token) {
     throw nonAutenticato();
   }
-
-  if (jwt.decode(token)?.tipo === 'visitatore') {
-    const visitatore = await authService.verificaVisitatore(token);
-    req.contesto.visitatoreId = visitatore.id;
-  } else {
-    impostaUtente(req, token);
-  }
+  Object.assign(req.contesto, await authService.verificaChat(token));
   return next();
 }
 

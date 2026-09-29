@@ -71,6 +71,7 @@
     "nodemailer": "^10.0.10",
     "pdfmake": "^0.3.11",
     "sequelize": "^6.37.8",
+    "socket.io": "^4.8.4",
     "stripe": "^22.6.2",
     "winston": "^3.19.0"
   },

@@ -37,6 +37,10 @@ const trovaConversazionePerUuid = async (uuid, transaction = null) => {
   return await Conversazione.findOne({ where: { uuid }, transaction });
 };
 
+const trovaConversazionePerId = async (id) => {
+  return await Conversazione.findByPk(id);
+};
+
 // Scheda completa, con i partecipanti ancora presenti.
 const trovaDettaglioConversazione = async (id) => {
   return await Conversazione.findByPk(id, {
@@ -190,6 +194,15 @@ const trovaPartecipazione = async (conversazioneId, utenteId, transaction = null
     where: { conversazione_id: conversazioneId, utente_id: utenteId, uscito_il: null },
     transaction,
   });
+};
+
+/** Id degli utenti ancora dentro la conversazione (per il socket). */
+const trovaIdPartecipanti = async (conversazioneId) => {
+  const righe = await ConversazionePartecipante.findAll({
+    attributes: ['utente_id'],
+    where: { conversazione_id: conversazioneId, uscito_il: null },
+  });
+  return righe.map((riga) => riga.utente_id);
 };
 
 // Il trigger delle regole_chat scatta solo sull'INSERT: chi rientra dopo
@@ -350,6 +363,7 @@ const salvaRiepilogo = async (conversazioneId, utenteId) => {
 
 module.exports = {
   trovaConversazionePerUuid,
+  trovaConversazionePerId,
   trovaDettaglioConversazione,
   trovaConversazioni,
   contaAssistenzeLibere,
@@ -362,6 +376,7 @@ module.exports = {
   aggiornaConversazione,
   eliminaConversazioni,
   trovaPartecipazione,
+  trovaIdPartecipanti,
   aggiungiPartecipante,
   segnaUscita,
   segnaLettoPartecipante,
