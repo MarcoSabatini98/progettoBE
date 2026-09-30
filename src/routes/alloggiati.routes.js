@@ -7,11 +7,16 @@ const { richiediAccesso } = require('../middlewares/autenticazione.middleware');
 const { richiediPermesso } = require('../middlewares/permessi.middleware');
 const { valida } = require('../middlewares/validazione.middleware');
 const { schemaPrenotazioneParam } = require('../validators/ospiti.validator');
-const { schemaFile, schemaRegistraInvio } = require('../validators/alloggiati.validator');
+const {
+  schemaCercaLuoghi,
+  schemaFile,
+  schemaRegistraInvio,
+} = require('../validators/alloggiati.validator');
 const { PERMESSI } = require('../constants/ruoli.constants');
 
 const invia = [richiediAccesso, richiediPermesso(PERMESSI.ALLOGGIATI_INVIA)];
 
+router.get('/luoghi', valida({ query: schemaCercaLuoghi }), controller.luoghi);
 router.get('/da-inviare', invia, controller.daInviare);
 router.post('/file', invia, valida({ body: schemaFile }), controller.file);
 router.get(

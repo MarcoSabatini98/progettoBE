@@ -6,6 +6,12 @@
 const alloggiatiService = require('../services/alloggiati.service');
 const { inviaSuccesso, inviaFile } = require('../utils/risposta');
 
+/** Pubblica: serve anche al check-in online e al profilo del cliente. */
+const luoghi = async (req, res) => {
+  const trovati = await alloggiatiService.cercaLuoghi(req.query);
+  return inviaSuccesso(res, 200, trovati);
+};
+
 /** Schedine di una prenotazione, con i campi mancanti per ogni ospite. */
 const daPrenotazione = async (req, res) => {
   const scheda = await alloggiatiService.daPrenotazione(req.params.prenotazioneId);
@@ -34,6 +40,7 @@ const daInviare = async (req, res) => {
 };
 
 module.exports = {
+  luoghi,
   daPrenotazione,
   file,
   registraInvio,

@@ -13,6 +13,7 @@ const { pagina, risultato } = require('../utils/paginazione');
 const { centesimi, euro } = require('../utils/denaro');
 const { eta } = require('../utils/date');
 const file = require('../utils/file');
+const { datiOspite, campiDaScrivere } = require('./helpers/dati-ospite');
 const { TIPI_CON_DOCUMENTO, CODICE_ITALIA } = require('../constants/prenotazioni.constants');
 
 // Campi obbligatori della schedina di Alloggiati Web.
@@ -26,33 +27,6 @@ const CAMPI_ALLOGGIATI = [
 ];
 // Il documento serve solo a chi guida il gruppo o viaggia da solo.
 const CAMPI_DOCUMENTO = ['tipo_documento', 'numero_documento', 'luogo_rilascio_codice'];
-
-function datiOspite(dati) {
-  return {
-    nome: dati.nome,
-    cognome: dati.cognome,
-    email: dati.email,
-    telefono: dati.telefono,
-    sesso: dati.sesso,
-    data_nascita: dati.data_nascita,
-    cittadinanza_codice: dati.cittadinanza_codice,
-    stato_nascita_codice: dati.stato_nascita_codice,
-    comune_nascita_codice: dati.comune_nascita_codice,
-    provincia_nascita: dati.provincia_nascita,
-    tipo_documento: dati.tipo_documento,
-    numero_documento: dati.numero_documento,
-    luogo_rilascio_codice: dati.luogo_rilascio_codice,
-    scadenza_documento: dati.scadenza_documento,
-    codice_fiscale: dati.codice_fiscale,
-    indirizzo: dati.indirizzo,
-    cap: dati.cap,
-    citta: dati.citta,
-    provincia: dati.provincia,
-    paese: dati.paese,
-    lingua: dati.lingua,
-    note: dati.note,
-  };
-}
 
 /** Campi che mancano per poter inviare l'ospite ad Alloggiati Web. */
 function campiMancanti(ospite, tipoAlloggiato = 'ospite_singolo') {
@@ -264,8 +238,9 @@ async function tassaEffettiva(prenotazione, righe, anagrafiche) {
  *
  * @param {{ ospite: object, tipo_alloggiato?: string, esente_tassa?: boolean,
  *   motivo_esenzione?: string }[]} righe  ospite = { id } oppure i dati completi
+ * @param {Function} anagrafica  (dati, transaction, indice) → ospite salvato
  */
-async function impostaDiPrenotazione(prenotazioneId, righe, contesto) {
+async function impostaDiPrenotazione(prenotazioneId, righe, contesto, anagrafica = trovaOCrea) {
   await transazione(contesto, async (transaction) => {
     const prenotazione = await prenotazioniRepo.bloccaPrenotazione(prenotazioneId, transaction);
     if (!prenotazione) {
@@ -281,8 +256,8 @@ async function impostaDiPrenotazione(prenotazioneId, righe, contesto) {
     }
 
     const anagrafiche = [];
-    for (const riga of righe) {
-      anagrafiche.push(await trovaOCrea(riga.ospite, transaction));
+    for (const [indice, riga] of righe.entries()) {
+      anagrafiche.push(await anagrafica(riga.ospite, transaction, indice));
     }
     const ids = anagrafiche.map((ospite) => ospite.id);
     if (new Set(ids).size !== ids.length) {
@@ -314,6 +289,44 @@ async function impostaDiPrenotazione(prenotazioneId, righe, contesto) {
   return await diPrenotazione(prenotazioneId);
 }
 
+// ─────────────────────────────────────
+// Check-in online
+// ─────────────────────────────────────
+
+// Di quella di un cliente registrato si completano solo i campi vuoti: il
+// resto lo cambia lui dal profilo.
+async function aggiornaDaCheckin(presente, dati, transaction) {
+  if (!presente) {
+    return await ospitiRepo.creaOspite(campiDaScrivere(dati), transaction);
+  }
+  const account = await ospitiRepo.trovaAccountDiOspite(presente.id, transaction);
+  const campi = campiDaScrivere(dati, presente, Boolean(account));
+  return await ospitiRepo.aggiornaOspite(presente.id, campi, transaction);
+}
+
+/**
+ * Chi ha il link non sceglie anagrafiche già registrate (nemmeno indicando lo
+ * stesso documento): ogni riga aggiorna l'ospite nella stessa posizione, con i
+ * soli campi compilati, oppure ne crea uno nuovo.
+ */
+async function impostaDaCheckin(prenotazioneId, righe, contesto) {
+  const presenti = await ospitiRepo.trovaOspitiDiPrenotazione(prenotazioneId);
+  return await impostaDiPrenotazione(prenotazioneId, righe, contesto, (dati, transaction, indice) =>
+    aggiornaDaCheckin(presenti[indice]?.ospite, dati, transaction),
+  );
+}
+
+/** Per chi ha il link: di ogni ospite il nome e i campi che mancano. */
+async function mancantiDiPrenotazione(prenotazioneId) {
+  const righe = await ospitiRepo.trovaOspitiDiPrenotazione(prenotazioneId);
+  return righe.map(({ ospite, tipo_alloggiato: tipoAlloggiato }) => ({
+    nome: ospite.nome,
+    cognome: ospite.cognome,
+    tipo_alloggiato: tipoAlloggiato,
+    campi_mancanti: campiMancanti(ospite, tipoAlloggiato),
+  }));
+}
+
 module.exports = {
   campiMancanti,
   elenco,
@@ -327,4 +340,6 @@ module.exports = {
   eliminaDocumento,
   diPrenotazione,
   impostaDiPrenotazione,
+  impostaDaCheckin,
+  mancantiDiPrenotazione,
 };

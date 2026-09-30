@@ -2,7 +2,18 @@
 
 const Joi = require('joi');
 const { id } = require('./comune.validator');
-const { ESITI_ALLOGGIATI } = require('../constants/prenotazioni.constants');
+const { ESITI_ALLOGGIATI, TIPI_LUOGO } = require('../constants/prenotazioni.constants');
+
+// Solo lettere, spazi, apostrofi, punti e trattini: niente caratteri jolly di LIKE.
+const schemaCercaLuoghi = Joi.object({
+  cerca: Joi.string()
+    .trim()
+    .min(2)
+    .max(100)
+    .pattern(/^[\p{L}\s'.-]+$/u)
+    .required(),
+  tipo: Joi.string().valid(...TIPI_LUOGO),
+});
 
 // Un file con le schedine di più prenotazioni.
 const schemaFile = Joi.object({
@@ -16,4 +27,4 @@ const schemaRegistraInvio = Joi.object({
   messaggio: Joi.string().max(5000).allow(null, ''),
 });
 
-module.exports = { schemaFile, schemaRegistraInvio };
+module.exports = { schemaCercaLuoghi, schemaFile, schemaRegistraInvio };

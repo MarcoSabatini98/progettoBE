@@ -118,6 +118,11 @@ async function dettaglioCliente(where) {
   return prenotazione;
 }
 
+// Dopo un'azione fatta anche dal cliente: lui non vede le note interne.
+async function dettaglioPer(id, contesto) {
+  return eStaff(contesto) ? await dettaglio(id) : await dettaglioCliente({ id });
+}
+
 /** Area cliente: le prenotazioni dell'account, dalle più recenti. */
 async function mie(utenteId, query) {
   const p = pagina(query);
@@ -434,7 +439,10 @@ async function prenotazioneDaToken(token) {
   return prenotazione;
 }
 
-/** Riepilogo per la pagina di check-in online. */
+/**
+ * Riepilogo per la pagina di check-in online. Chi ha il link vede degli ospiti
+ * solo il nome e cosa manca, non i dati già registrati.
+ */
 async function datiCheckinOnline(token) {
   const prenotazione = await prenotazioneDaToken(token);
   return {
@@ -444,7 +452,7 @@ async function datiCheckinOnline(token) {
     adulti: prenotazione.adulti,
     bambini: prenotazione.bambini,
     checkin_online_il: prenotazione.checkin_online_il,
-    ospiti: await ospitiService.diPrenotazione(prenotazione.id),
+    ospiti: await ospitiService.mancantiDiPrenotazione(prenotazione.id),
   };
 }
 
@@ -453,7 +461,7 @@ async function checkinOnline(token, ospiti, ip) {
   const prenotazione = await prenotazioneDaToken(token);
   const contesto = { utenteId: prenotazione.utente_id, ip };
 
-  await ospitiService.impostaDiPrenotazione(prenotazione.id, ospiti, contesto);
+  await ospitiService.impostaDaCheckin(prenotazione.id, ospiti, contesto);
   await transazione(contesto, async (transaction) => {
     await prenotazioniRepo.aggiornaPrenotazione(
       prenotazione.id,
@@ -555,7 +563,7 @@ async function cancella(id, { motivo, penale } = {}, contesto) {
     );
   });
   await notifica(id, 'prenotazione_cancellata');
-  return await dettaglio(id);
+  return await dettaglioPer(id, contesto);
 }
 
 async function checkIn(id, contesto) {
@@ -741,7 +749,7 @@ async function aggiungiServizio(id, { servizio_id: servizioId, quantita = 1 }, c
       transaction,
     );
   });
-  return await dettaglio(id);
+  return await dettaglioPer(id, contesto);
 }
 
 async function rimuoviServizio(id, servizioId, contesto) {
@@ -751,7 +759,7 @@ async function rimuoviServizio(id, servizioId, contesto) {
     richiediStato(prenotazione, statiPerServizi(contesto), 'togliere servizi da');
     await prenotazioniRepo.eliminaRigaServizio(id, servizioId, transaction);
   });
-  return await dettaglio(id);
+  return await dettaglioPer(id, contesto);
 }
 
 // ─────────────────────────────────────
