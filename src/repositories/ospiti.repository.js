@@ -135,10 +135,17 @@ const eliminaDocumento = async (id) => {
 // Ospiti di una prenotazione
 // ─────────────────────────────────────
 
-const trovaOspitiDiPrenotazione = async (prenotazioneId) => {
+// Chi guida il gruppo per primo (ordine dell'ENUM tipo_alloggiato), come vuole
+// la schedina; poi un ordine stabile, che il check-in online usa riga per riga.
+const trovaOspitiDiPrenotazione = async (prenotazioneId, transaction = null) => {
   return await PrenotazioneOspite.findAll({
     where: { prenotazione_id: prenotazioneId },
     include: [{ model: Ospite, as: 'ospite' }],
+    order: [
+      ['tipo_alloggiato', 'ASC'],
+      ['ospite_id', 'ASC'],
+    ],
+    transaction,
   });
 };
 

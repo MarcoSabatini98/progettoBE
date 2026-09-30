@@ -1,9 +1,11 @@
 // src/repositories/alloggiati.repository.js
 //
-// Invii delle schedine ad Alloggiati Web.
+// Invii delle schedine ad Alloggiati Web e ricerca nella tabella dei luoghi.
 
 const { Op } = require('sequelize');
-const { Prenotazione, InvioAlloggiati, Utente } = require('../models');
+const { Prenotazione, InvioAlloggiati, Utente, AlloggiatiLuogo } = require('../models');
+
+const LUOGHI_PER_RICERCA = 20;
 
 // Prenotazione con gli invii già fatti, dal più recente.
 const trovaPrenotazioneConInvii = async (prenotazioneId) => {
@@ -45,7 +47,26 @@ const trovaSoggiorniIniziatiDal = async (dal) => {
   });
 };
 
+/**
+ * Comuni e stati il cui nome inizia con il testo cercato.
+ * ponytail: esclusi i soppressi; chi è nato in un comune soppresso lo corregge
+ * la reception.
+ */
+const cercaLuoghi = async ({ cerca, tipo }) => {
+  return await AlloggiatiLuogo.findAll({
+    where: {
+      descrizione: { [Op.like]: `${cerca}%` },
+      soppresso_il: null,
+      ...(tipo && { tipo }),
+    },
+    attributes: ['codice', 'descrizione', 'provincia', 'tipo'],
+    order: [['descrizione', 'ASC']],
+    limit: LUOGHI_PER_RICERCA,
+  });
+};
+
 module.exports = {
+  cercaLuoghi,
   trovaPrenotazioneConInvii,
   creaInvii,
   trovaSoggiorniIniziatiDal,

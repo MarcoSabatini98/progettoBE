@@ -145,4 +145,9 @@ async function avvisaDaInviare() {
   return { da_inviare: soggiorni.length };
 }
 
-module.exports = { daPrenotazione, file, registraInvio, daInviare, avvisaDaInviare };
+/** Comuni e stati per compilare i dati degli ospiti (codici ufficiali). */
+async function cercaLuoghi(query) {
+  return await alloggiatiRepo.cercaLuoghi(query);
+}
+
+module.exports = { cercaLuoghi, daPrenotazione, file, registraInvio, daInviare, avvisaDaInviare };
