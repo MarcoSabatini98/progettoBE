@@ -3,6 +3,9 @@
 //   npm run db:seed          prima: dati di base e admin
 //   npm run db:seed:prova    poi: questo
 //
+// Per ripartire da capo (rilanciano anche questo):
+//   npm run db:reset:seed   svuota i dati e tiene lo schema
+//   npm run db:reset        ricrea l'intero database
 // Per tornare ai soli dati di base:
 //   npm run db:crea -- --reset && npm run db:seed
 //
@@ -40,6 +43,7 @@ const chatService = require('../src/services/chat.service');
 const { oggi, aggiungiGiorni } = require('../src/utils/date');
 const file = require('../src/utils/file');
 const { uuid } = require('../src/utils/sicurezza');
+const { CARTELLE_UPLOAD } = require('../src/constants/sistema.constants');
 
 const PASSWORD_PROVA = 'Prova1234!';
 
@@ -90,7 +94,10 @@ function giorno(offset) {
 async function aggiungiFoto(tipologia, foto) {
   for (const [ordine, nome] of foto.entries()) {
     const contenuto = await fs.readFile(path.join(CARTELLA_FOTO, nome));
-    const relativo = await file.salva(`media/${uuid()}${path.extname(nome)}`, contenuto);
+    const relativo = await file.salva(
+      `${CARTELLE_UPLOAD.media}/${uuid()}${path.extname(nome)}`,
+      contenuto,
+    );
     await contenutiService.aggiungiMedia(
       {
         entita: 'tipologia_camera',

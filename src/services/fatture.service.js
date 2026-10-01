@@ -18,6 +18,7 @@ const email = require('./email.service');
 const fatturaPa = require('./helpers/fattura-pa');
 const { documentoFattura } = require('./helpers/fattura-pdf');
 const { STATI_SDI } = require('../constants/pagamenti.constants');
+const { CARTELLE_UPLOAD } = require('../constants/sistema.constants');
 const {
   nonTrovato,
   conflitto,
@@ -453,7 +454,7 @@ async function generaFile(id, datiCedente, transaction) {
     origine = await fatturaOppure404(fattura.fattura_origine_id, transaction);
   }
 
-  const cartella = `fatture/${fattura.anno}`;
+  const cartella = `${CARTELLE_UPLOAD.fatture}/${fattura.anno}`;
   const nomeXml = fatturaPa.nomeFile(datiCedente.partita_iva, fattura.id);
   const xml = fatturaPa.xml(fattura, datiCedente, origine);
   const percorsoXml = await file.salva(`${cartella}/${nomeXml}`, xml);

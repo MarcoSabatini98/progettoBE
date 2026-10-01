@@ -91,16 +91,17 @@ function dividiIstruzioni(sql) {
   return istruzioni;
 }
 
-async function creaDatabase({ reset = false } = {}) {
+/**
+ * Connessione al server indicato in .env, senza scegliere il database
+ * (può non esistere ancora). Va chiusa con connessione.end().
+ */
+async function connetti() {
   require('dotenv').config({ quiet: true });
   const mysql = require('mysql2/promise');
-  const { DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, NODE_ENV } = process.env;
+  const { DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD } = process.env;
 
   if (!DB_NAME || !DB_USER) {
     throw new Error('DB_NAME e DB_USER sono obbligatori: controlla il file .env');
-  }
-  if (reset && NODE_ENV === 'production') {
-    throw new Error('--reset non è consentito con NODE_ENV=production: cancellerebbe tutti i dati');
   }
 
   const connessione = await mysql.createConnection({
@@ -110,7 +111,16 @@ async function creaDatabase({ reset = false } = {}) {
     password: DB_PASSWORD,
     timezone: 'Z',
   });
+  return { connessione, DB_NAME };
+}
 
+async function creaDatabase({ reset = false } = {}) {
+  require('dotenv').config({ quiet: true });
+  if (reset && process.env.NODE_ENV === 'production') {
+    throw new Error('--reset non è consentito con NODE_ENV=production: cancellerebbe tutti i dati');
+  }
+
+  const { connessione, DB_NAME } = await connetti();
   try {
     const nome = connessione.escapeId(DB_NAME);
     if (reset) {
@@ -163,4 +173,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { dividiIstruzioni, creaDatabase };
+module.exports = { FILE_SCHEMA, dividiIstruzioni, connetti, creaDatabase };

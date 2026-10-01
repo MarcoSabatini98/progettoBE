@@ -22,6 +22,8 @@
     "db:crea": "node database/crea-database.js",
     "db:seed": "node database/seed-base.js",
     "db:seed:prova": "node database/seed-prova.js",
+    "db:reset": "node database/reset-database.js --tutto && npm run db:seed && npm run db:seed:prova",
+    "db:reset:seed": "node database/reset-database.js && npm run db:seed && npm run db:seed:prova",
     "prepare": "husky"
   },
   "jest": {
