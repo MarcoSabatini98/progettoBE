@@ -1,6 +1,6 @@
 // Dati di base che servono a ogni installazione, anche in produzione.
 //
-//   npm run db:seed
+//   npm run seed   (insieme ai dati di prova, database/seeders)
 //
 //  - tabelle ufficiali Alloggiati Web (comuni, stati, documenti) dai file della
 //    Polizia di Stato in database/dati (aggiornati ogni volta che si rilancia)
@@ -222,20 +222,6 @@ async function seedBase() {
     Dotazioni: `${DOTAZIONI.length} verificate`,
     'Piano tariffario': pianiEsistenti === 0 ? 'Standard creato' : 'già presente',
   };
-}
-
-if (require.main === module) {
-  seedBase()
-    .then((esito) => {
-      for (const [voce, valore] of Object.entries(esito)) {
-        console.log(`${voce}: ${valore}`);
-      }
-    })
-    .catch((err) => {
-      console.error(`Errore: ${err.message}`);
-      process.exitCode = 1;
-    })
-    .finally(() => modelli.sequelize.close());
 }
 
 module.exports = { righeCsv, dataDaCsv, luoghiDaCsv, documentiDaCsv, seedBase };

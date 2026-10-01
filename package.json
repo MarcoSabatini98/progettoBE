@@ -19,11 +19,14 @@
     "test:unit": "jest --selectProjects unit",
     "test:integration": "jest --selectProjects integration --runInBand --passWithNoTests",
     "test:coverage": "jest --coverage --runInBand",
-    "db:crea": "node database/crea-database.js",
-    "db:seed": "node database/seed-base.js",
-    "db:seed:prova": "node database/seed-prova.js",
-    "db:reset": "node database/reset-database.js --tutto && npm run db:seed && npm run db:seed:prova",
-    "db:reset:seed": "node database/reset-database.js && npm run db:seed && npm run db:seed:prova",
+    "db:create": "sequelize-cli db:create --charset utf8mb4 --collate utf8mb4_unicode_ci",
+    "db:reset": "sequelize-cli db:drop && npm run db:create && npm run migrate && npm run seed",
+    "migrate": "sequelize-cli db:migrate",
+    "migrate:undo": "sequelize-cli db:migrate:undo",
+    "migrate:undo:all": "sequelize-cli db:migrate:undo:all",
+    "migrate:reset": "npm run migrate:undo:all && npm run migrate && npm run seed",
+    "migrate:status": "sequelize-cli db:migrate:status",
+    "seed": "sequelize-cli db:seed:all",
     "prepare": "husky"
   },
   "jest": {
@@ -87,6 +90,7 @@
     "husky": "^9.1.7",
     "jest": "^30.5.2",
     "lint-staged": "^17.5.1",
-    "prettier": "^3.9.9"
+    "prettier": "^3.9.9",
+    "sequelize-cli": "^6.6.5"
   }
 }

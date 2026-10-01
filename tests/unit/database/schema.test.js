@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { dividiIstruzioni } = require('../../../database/crea-database');
+const { dividiIstruzioni } = require('../../../database/schema');
 
 describe('dividiIstruzioni', () => {
   test('divide sul punto e virgola', () => {
