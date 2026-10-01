@@ -22,6 +22,15 @@ const ordineMedia = [
   ['id', 'ASC'],
 ];
 
+// A pari ordine scelto dallo staff, dalla più piccola alla più grande
+// (singola, doppia, tripla, suite), non in ordine alfabetico.
+const ordineTipologie = [
+  ['ordine', 'ASC'],
+  ['ospiti_max', 'ASC'],
+  ['prezzo_base', 'ASC'],
+  ['nome', 'ASC'],
+];
+
 // ─────────────────────────────────────
 // Tipologie
 // ─────────────────────────────────────
@@ -39,10 +48,7 @@ const trovaTipologie = async (filtri = {}) => {
       { model: Servizio, as: 'servizi', through: { attributes: [] } },
       { model: Media, as: 'media', separate: true, order: ordineMedia },
     ],
-    order: [
-      ['ordine', 'ASC'],
-      ['nome', 'ASC'],
-    ],
+    order: ordineTipologie,
   });
 };
 
@@ -67,10 +73,7 @@ const trovaTipologiePubbliche = async (lingua, filtri = {}) => {
       { model: Media, as: 'media', separate: true, order: ordineMedia },
       { model: Traduzione, as: 'traduzioni', where: { lingua }, required: false },
     ],
-    order: [
-      ['ordine', 'ASC'],
-      ['nome', 'ASC'],
-    ],
+    order: ordineTipologie,
   });
 };
 
