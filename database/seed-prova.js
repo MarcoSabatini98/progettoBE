@@ -16,6 +16,9 @@ process.env.SMTP_HOST = '';
 // Solo avvisi ed errori: le email non inviate riempirebbero lo schermo.
 process.env.LOG_LEVEL = 'warn';
 
+const fs = require('node:fs/promises');
+const path = require('node:path');
+
 const modelli = require('../src/models');
 const utentiRepo = require('../src/repositories/utenti.repository');
 const prenotazioniRepo = require('../src/repositories/prenotazioni.repository');
@@ -35,8 +38,13 @@ const pulizieService = require('../src/services/pulizie.service');
 const manutenzioneService = require('../src/services/manutenzione.service');
 const chatService = require('../src/services/chat.service');
 const { oggi, aggiungiGiorni } = require('../src/utils/date');
+const file = require('../src/utils/file');
+const { uuid } = require('../src/utils/sicurezza');
 
 const PASSWORD_PROVA = 'Prova1234!';
+
+// Foto CC0 da Wikimedia Commons (autori in database/dati/foto/CREDITI.md).
+const CARTELLA_FOTO = path.join(__dirname, 'dati', 'foto');
 
 // Codici ufficiali Alloggiati Web (database/dati).
 const ALLOGGIATI = {
@@ -76,6 +84,23 @@ function contesto(utente) {
 
 function giorno(offset) {
   return aggiungiGiorni(oggi(), offset);
+}
+
+/** Copia le foto in uploads/media come farebbe un caricamento dal gestionale. */
+async function aggiungiFoto(tipologia, foto) {
+  for (const [ordine, nome] of foto.entries()) {
+    const contenuto = await fs.readFile(path.join(CARTELLA_FOTO, nome));
+    const relativo = await file.salva(`media/${uuid()}${path.extname(nome)}`, contenuto);
+    await contenutiService.aggiungiMedia(
+      {
+        entita: 'tipologia_camera',
+        entitaId: tipologia.id,
+        testoAlternativo: `Camera ${tipologia.nome.toLowerCase()}`,
+        ordine,
+      },
+      { path: file.percorsoAssoluto(relativo), mimetype: 'image/jpeg', size: contenuto.length },
+    );
+  }
 }
 
 // ─────────────────────────────────────
@@ -145,15 +170,30 @@ async function creaCatalogo(ctx) {
   }
 
   const tipologie = {};
-  for (const tipologia of [
-    { nome: 'Singola', prezzo_base: 70, ospiti_max: 1, superficie_mq: 14, letti: '1 singolo' },
-    { nome: 'Doppia', prezzo_base: 95, ospiti_max: 2, superficie_mq: 18, letti: '1 matrimoniale' },
+  for (const [ordine, { foto, ...tipologia }] of [
+    {
+      nome: 'Singola',
+      prezzo_base: 70,
+      ospiti_max: 1,
+      superficie_mq: 14,
+      letti: '1 singolo',
+      foto: ['singola-1.jpg'],
+    },
+    {
+      nome: 'Doppia',
+      prezzo_base: 95,
+      ospiti_max: 2,
+      superficie_mq: 18,
+      letti: '1 matrimoniale',
+      foto: ['doppia-1.jpg', 'doppia-2.jpg'],
+    },
     {
       nome: 'Tripla',
       prezzo_base: 120,
       ospiti_max: 3,
       superficie_mq: 24,
       letti: '1 matrimoniale + 1 singolo',
+      foto: ['tripla-1.jpg', 'tripla-2.jpg'],
     },
     {
       nome: 'Suite',
@@ -162,13 +202,16 @@ async function creaCatalogo(ctx) {
       superficie_mq: 40,
       letti: '1 matrimoniale + divano letto',
       servizi: [dotazione('Minibar'), dotazione('Balcone'), dotazione('Vista mare')],
+      foto: ['suite-1.jpg', 'suite-2.jpg'],
     },
-  ]) {
+  ].entries()) {
     tipologie[tipologia.nome] = await camereService.creaTipologia({
       ...tipologia,
+      ordine,
       descrizione: `Camera ${tipologia.nome.toLowerCase()} con arredi moderni.`,
       servizi: [...base.map(dotazione), ...(tipologia.servizi ?? [])],
     });
+    await aggiungiFoto(tipologie[tipologia.nome], foto);
   }
 
   const camere = {};
