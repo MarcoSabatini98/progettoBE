@@ -311,18 +311,23 @@ async function generaGiornata(giorno = oggi()) {
   return { riassetti: occupate.length, checklist_aggiunte: senzaChecklist.length };
 }
 
+/** Addetti attivi tra cui scegliere nell'assegnazione. */
+async function addetti() {
+  return await utentiRepo.trovaStaffAttivo(SQUADRE.housekeeping);
+}
+
 /**
  * Assegna le attività libere del giorno agli addetti attivi, ognuna a chi
  * ne ha meno (le urgenti per prime).
  */
 async function autoassegna(giorno = oggi()) {
   const libere = await pulizieRepo.trovaNonAssegnate(giorno);
-  const addetti = await utentiRepo.trovaStaffAttivo(SQUADRE.housekeeping);
-  if (libere.length === 0 || addetti.length === 0) {
+  const squadra = await addetti();
+  if (libere.length === 0 || squadra.length === 0) {
     return { assegnate: 0, non_assegnate: libere.length };
   }
 
-  const carico = new Map(addetti.map((addetto) => [addetto.id, 0]));
+  const carico = new Map(squadra.map((addetto) => [addetto.id, 0]));
   for (const riga of await pulizieRepo.contaAttivitaPerAddetto(giorno)) {
     if (carico.has(riga.assegnata_a)) {
       carico.set(riga.assegnata_a, riga.count);
@@ -360,6 +365,7 @@ module.exports = {
   elimina,
   avanza,
   generaGiornata,
+  addetti,
   autoassegna,
   preparaGiornata,
 };
