@@ -42,6 +42,7 @@ router.delete('/checklist/:id', gestisci, idParam, controller.eliminaVoce);
 // ─────────────────────────────────────
 
 router.post('/giornata', gestisci, valida({ body: schemaGiorno }), controller.generaGiornata);
+router.get('/addetti', gestisci, controller.addetti);
 router.post(
   '/giornata/assegnazione',
   gestisci,

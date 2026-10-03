@@ -47,6 +47,12 @@ const generaGiornata = async (req, res) => {
   return inviaSuccesso(res, 200, esito);
 };
 
+/** Addetti a cui assegnare le attività (chi gestisce le pulizie può non vedere gli utenti). */
+const addetti = async (req, res) => {
+  const squadra = await pulizieService.addetti();
+  return inviaSuccesso(res, 200, squadra);
+};
+
 /** Distribuisce le attività libere del giorno tra gli addetti. */
 const autoassegna = async (req, res) => {
   const esito = await pulizieService.autoassegna(req.body.giorno);
@@ -85,6 +91,7 @@ module.exports = {
   elimina,
   avanza,
   generaGiornata,
+  addetti,
   autoassegna,
   vociChecklist,
   aggiungiVoce,
