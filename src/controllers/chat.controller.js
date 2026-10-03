@@ -49,6 +49,12 @@ const apriAssistenza = async (req, res) => {
   return inviaSuccesso(res, 201, conversazione);
 };
 
+/** Lo staff con cui si può aprire una chat interna. */
+const colleghi = async (req, res) => {
+  const staff = await chatService.colleghi(req.contesto);
+  return inviaSuccesso(res, 200, staff);
+};
+
 const apriStaff = async (req, res) => {
   const conversazione = await chatService.apriStaff(req.contesto, req.body);
   return inviaSuccesso(res, 201, conversazione);
@@ -156,6 +162,7 @@ module.exports = {
   totaleNonLetti,
   dettaglio,
   apriAssistenza,
+  colleghi,
   apriStaff,
   segnaLetto,
   assegna,
