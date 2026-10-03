@@ -52,6 +52,7 @@ router.get(
   valida({ query: schemaFiltriConversazioni }),
   controller.elenco,
 );
+router.get('/colleghi', richiediChat, controller.colleghi);
 router.get('/conversazioni/non-letti', richiediChat, controller.totaleNonLetti);
 // ponytail: limite solo all'apertura, non a ogni messaggio (colpirebbe anche lo staff)
 router.post(

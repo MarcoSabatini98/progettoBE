@@ -474,6 +474,25 @@ async function trovaDiretta(utenteId, altroId) {
 }
 
 /**
+ * Lo staff attivo con cui `chi` può aprire una chat secondo le regole_chat,
+ * con la presenza: serve per scegliere i destinatari senza il permesso di
+ * vedere gli utenti.
+ */
+async function colleghi(chi) {
+  if (eCliente(chi)) {
+    throw vietato('PERMESSO_NEGATO', 'La chat interna è solo per lo staff');
+  }
+  const regole = await permessi.regoleChat();
+  const ruoli = regole
+    .filter((regola) => [regola.ruolo_a, regola.ruolo_b].includes(chi.ruolo))
+    .map((regola) => (regola.ruolo_a === chi.ruolo ? regola.ruolo_b : regola.ruolo_a));
+  const staff = await utentiRepo.trovaStaffAttivo([...new Set(ruoli)]);
+  return staff
+    .filter((utente) => utente.id !== chi.utenteId)
+    .map((utente) => ({ ...utente.get({ plain: true }), presenza: presenzaDi(utente.id) }));
+}
+
+/**
  * Nuova chat interna. Con un solo destinatario riapre la diretta già
  * esistente; con più destinatari crea un gruppo. Il DB rifiuta i ruoli che
  * non possono parlarsi (CHAT_NON_CONSENTITA).
@@ -703,6 +722,7 @@ module.exports = {
   apriAssistenza,
   assegna,
   impostaStato,
+  colleghi,
   apriStaff,
   aggiungiPartecipante,
   rinominaGruppo,
