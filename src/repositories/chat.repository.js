@@ -23,6 +23,15 @@ const includeVisitatore = {
   attributes: ['id', 'nome', 'email'],
 };
 
+// Chi è ancora nella conversazione: nell'elenco serve per il nome delle chat dirette.
+const includePartecipanti = {
+  model: Utente,
+  as: 'partecipanti',
+  attributes: ['id', 'nome', 'cognome', 'ruolo'],
+  through: { where: { uscito_il: null }, attributes: ['entrato_il', 'letto_fino_al'] },
+  required: false,
+};
+
 const includeMessaggio = [
   persona('mittente_utente'),
   { model: Visitatore, as: 'mittente_visitatore', attributes: ['id', 'nome'] },
@@ -44,18 +53,7 @@ const trovaConversazionePerId = async (id) => {
 // Scheda completa, con i partecipanti ancora presenti.
 const trovaDettaglioConversazione = async (id) => {
   return await Conversazione.findByPk(id, {
-    include: [
-      persona('operatore'),
-      persona('cliente'),
-      includeVisitatore,
-      {
-        model: Utente,
-        as: 'partecipanti',
-        attributes: ['id', 'nome', 'cognome', 'ruolo'],
-        through: { where: { uscito_il: null }, attributes: ['entrato_il', 'letto_fino_al'] },
-        required: false,
-      },
-    ],
+    include: [persona('operatore'), persona('cliente'), includeVisitatore, includePartecipanti],
   });
 };
 
@@ -72,7 +70,12 @@ const trovaConversazioni = async (filtri, { limit, offset }) => {
     }
   }
 
-  const include = [persona('operatore'), persona('cliente'), includeVisitatore];
+  const include = [
+    persona('operatore'),
+    persona('cliente'),
+    includeVisitatore,
+    includePartecipanti,
+  ];
   if (filtri.membroId) {
     include.push({
       model: ConversazionePartecipante,
