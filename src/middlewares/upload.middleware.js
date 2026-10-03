@@ -1,11 +1,7 @@
 // src/middlewares/upload.middleware.js
 //
 // File caricati dagli utenti, salvati da multer direttamente su disco nella
-// cartella UPLOAD_DIR, in una sottocartella per tipo:
-//
-//   media/      immagini del sito (tipologie, servizi...): pubbliche
-//   documenti/  documenti d'identità degli ospiti: privati
-//   chat/       allegati della chat: privati
+// cartella UPLOAD_DIR, in una sottocartella per tipo (CARTELLE_UPLOAD).
 //
 // Il nome sul disco è un UUID con l'estensione presa dal tipo MIME, mai il
 // nome scelto dall'utente. I service salvano nel DB il percorso relativo
@@ -16,6 +12,7 @@ const path = require('node:path');
 const multer = require('multer');
 const config = require('../config/env');
 const { ALLEGATI_MAX } = require('../constants/chat.constants');
+const { CARTELLE_UPLOAD } = require('../constants/sistema.constants');
 const { uuid } = require('../utils/sicurezza');
 const { ErroreApp } = require('../utils/errori');
 
@@ -57,15 +54,22 @@ function caricatore(cartella, estensioni, formati) {
 }
 
 /** Un'immagine nel campo "file" (galleria del sito). */
-const caricaImmagine = caricatore('media', IMMAGINI, 'JPG, PNG o WEBP').single('file');
+const caricaImmagine = caricatore(CARTELLE_UPLOAD.media, IMMAGINI, 'JPG, PNG o WEBP').single(
+  'file',
+);
 
 /** Un documento d'identità nel campo "file". */
-const caricaDocumento = caricatore('documenti', DOCUMENTI, 'PDF, JPG, PNG o WEBP').single('file');
+const caricaDocumento = caricatore(
+  CARTELLE_UPLOAD.documenti,
+  DOCUMENTI,
+  'PDF, JPG, PNG o WEBP',
+).single('file');
 
 /** Fino a ALLEGATI_MAX allegati nel campo "allegati" (facoltativi). */
-const caricaAllegatiChat = caricatore('chat', DOCUMENTI, 'PDF, JPG, PNG o WEBP').array(
-  'allegati',
-  ALLEGATI_MAX,
-);
+const caricaAllegatiChat = caricatore(
+  CARTELLE_UPLOAD.chat,
+  DOCUMENTI,
+  'PDF, JPG, PNG o WEBP',
+).array('allegati', ALLEGATI_MAX);
 
 module.exports = { caricaImmagine, caricaDocumento, caricaAllegatiChat };

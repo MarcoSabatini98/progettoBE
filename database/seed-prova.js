@@ -1,20 +1,13 @@
 // Dati di prova per sviluppo e test manuali. Mai in produzione.
 //
-//   npm run db:seed          prima: dati di base e admin
-//   npm run db:seed:prova    poi: questo
-//
-// Per tornare ai soli dati di base:
-//   npm run db:crea -- --reset && npm run db:seed
+//   npm run seed       dati di base, poi questi (database/seeders)
+//   npm run db:reset   ricrea il database da capo e rilancia entrambi
 //
 // Tutto passa dai service veri (prezzi, trigger, punti fedeltà, pulizie di
 // partenza, notifiche), quindi i dati sono coerenti come quelli reali. Le date
 // sono relative a oggi: soggiorni conclusi, in corso e futuri.
-// Tutti gli account di prova hanno la password PASSWORD_PROVA.
-
-// Nessuna email vera ai clienti inventati, qualunque sia il .env.
-process.env.SMTP_HOST = '';
-// Solo avvisi ed errori: le email non inviate riempirebbero lo schermo.
-process.env.LOG_LEVEL = 'warn';
+// Tutti gli account di prova hanno la password PASSWORD_PROVA. Le email non
+// partono: sequelize.config.js spegne l'SMTP nei comandi del database.
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -40,6 +33,7 @@ const chatService = require('../src/services/chat.service');
 const { oggi, aggiungiGiorni } = require('../src/utils/date');
 const file = require('../src/utils/file');
 const { uuid } = require('../src/utils/sicurezza');
+const { CARTELLE_UPLOAD } = require('../src/constants/sistema.constants');
 
 const PASSWORD_PROVA = 'Prova1234!';
 
@@ -90,7 +84,10 @@ function giorno(offset) {
 async function aggiungiFoto(tipologia, foto) {
   for (const [ordine, nome] of foto.entries()) {
     const contenuto = await fs.readFile(path.join(CARTELLA_FOTO, nome));
-    const relativo = await file.salva(`media/${uuid()}${path.extname(nome)}`, contenuto);
+    const relativo = await file.salva(
+      `${CARTELLE_UPLOAD.media}/${uuid()}${path.extname(nome)}`,
+      contenuto,
+    );
     await contenutiService.aggiungiMedia(
       {
         entita: 'tipologia_camera',
@@ -838,7 +835,9 @@ async function seedProva() {
 
   const admin = await modelli.Utente.findOne({ where: { ruolo: 'admin' } });
   if (!admin) {
-    throw new Error("Nessun amministratore: lancia prima npm run db:seed con l'admin nel .env");
+    throw new Error(
+      'Nessun amministratore: imposta SEED_ADMIN_EMAIL e SEED_ADMIN_PASSWORD nel file .env',
+    );
   }
 
   await impostaStruttura(admin);
@@ -859,27 +858,4 @@ async function seedProva() {
   };
 }
 
-if (require.main === module) {
-  seedProva()
-    .then((esito) => {
-      if (!esito) {
-        console.log('Dati di prova già presenti: per ricominciare usa db:crea -- --reset');
-        return;
-      }
-      console.log(
-        `Dati di prova creati: ${esito.staff} staff, ${esito.clienti} clienti, ` +
-          `${esito.camere} camere, ${esito.prenotazioni} prenotazioni.`,
-      );
-      console.log(`Password di tutti gli account di prova: ${PASSWORD_PROVA}`);
-    })
-    .catch((err) => {
-      console.error(`Errore: ${err.message}`);
-      if (err.dettagli) {
-        console.error(JSON.stringify(err.dettagli, null, 2));
-      }
-      process.exitCode = 1;
-    })
-    .finally(() => modelli.sequelize.close());
-}
-
-module.exports = { seedProva };
+module.exports = { PASSWORD_PROVA, seedProva };

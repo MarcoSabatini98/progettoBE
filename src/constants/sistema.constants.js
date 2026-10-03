@@ -23,6 +23,15 @@ const AZIONI_REGISTRO = Object.freeze(['inserimento', 'modifica', 'eliminazione'
 // Tabelle scritte dai trigger di audit.
 const TABELLE_REGISTRO = Object.freeze(['prenotazioni', 'pagamenti', 'fatture']);
 
+// Sottocartelle di UPLOAD_DIR, una per tipo di file. I file sono tutti
+// generati dall'app: il reset del database le svuota.
+const CARTELLE_UPLOAD = Object.freeze({
+  media: 'media', // immagini del sito: pubbliche
+  documenti: 'documenti', // documenti d'identità degli ospiti: privati
+  chat: 'chat', // allegati della chat: privati
+  fatture: 'fatture', // XML e PDF generati: privati
+});
+
 // Campi traducibili per entità: solo testi. applicaTraduzioni sostituisce
 // qualunque campo del record, quindi niente prezzi o id tra questi.
 const CAMPI_TRADUCIBILI = Object.freeze({
@@ -41,5 +50,6 @@ module.exports = {
   TIPI_EVENTO_SPECIALE,
   AZIONI_REGISTRO,
   TABELLE_REGISTRO,
+  CARTELLE_UPLOAD,
   CAMPI_TRADUCIBILI,
 };
