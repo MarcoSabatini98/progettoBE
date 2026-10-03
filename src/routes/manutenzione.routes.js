@@ -22,6 +22,7 @@ const gestisci = [richiediAccesso, richiediPermesso(PERMESSI.MANUTENZIONE_GESTIS
 
 router.get('/', segnala, valida({ query: schemaFiltriSegnalazioni }), controller.elenco);
 router.post('/', segnala, valida({ body: schemaSegnala }), controller.segnala);
+router.get('/incaricabili', gestisci, controller.incaricabili);
 router.get('/:id', segnala, valida({ params: schemaIdParam }), controller.dettaglio);
 router.patch(
   '/:id',

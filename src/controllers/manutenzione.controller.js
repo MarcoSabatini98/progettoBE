@@ -16,6 +16,12 @@ const dettaglio = async (req, res) => {
   return inviaSuccesso(res, 200, segnalazione);
 };
 
+/** Chi può prendere in carico una segnalazione. */
+const incaricabili = async (req, res) => {
+  const staff = await manutenzioneService.incaricabili();
+  return inviaSuccesso(res, 200, staff);
+};
+
 const segnala = async (req, res) => {
   const segnalazione = await manutenzioneService.segnala(req.body, req.contesto);
   return inviaSuccesso(res, 201, segnalazione);
@@ -29,6 +35,7 @@ const aggiorna = async (req, res) => {
 module.exports = {
   elenco,
   dettaglio,
+  incaricabili,
   segnala,
   aggiorna,
 };

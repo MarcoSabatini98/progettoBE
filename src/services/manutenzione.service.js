@@ -10,6 +10,7 @@
 const { sequelize } = require('../models');
 const manutenzioneRepo = require('../repositories/manutenzione.repository');
 const camereRepo = require('../repositories/camere.repository');
+const utentiRepo = require('../repositories/utenti.repository');
 const permessi = require('./permessi.service');
 const notifiche = require('./notifiche.service');
 const { PERMESSI } = require('../constants/ruoli.constants');
@@ -67,6 +68,12 @@ async function dettaglio(id, contesto) {
     throw vietato('PERMESSO_NEGATO', 'Non puoi vedere questa segnalazione');
   }
   return segnalazione;
+}
+
+/** Staff attivo a cui assegnare una segnalazione: chi gestisce la manutenzione. */
+async function incaricabili() {
+  const ruoli = await permessi.ruoliCon(PERMESSI.MANUTENZIONE_GESTISCI);
+  return await utentiRepo.trovaStaffAttivo(ruoli);
 }
 
 // ─────────────────────────────────────
@@ -181,6 +188,7 @@ async function aggiorna(id, dati, contesto) {
 module.exports = {
   elenco,
   dettaglio,
+  incaricabili,
   segnala,
   aggiorna,
 };
