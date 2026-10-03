@@ -506,6 +506,10 @@ async function apriStaff(chi, dati) {
   if (Object.values(GRUPPI_SQUADRA).includes(dati.titolo)) {
     throw richiestaNonValida('TITOLO_RISERVATO', 'Questo nome è riservato ai gruppi di squadra');
   }
+  // Senza titolo un gruppo sembrerebbe una chat diretta e non si potrebbe gestire.
+  if (altri.length > 1 && !dati.titolo?.trim()) {
+    throw richiestaNonValida('TITOLO_MANCANTE', 'Dai un nome al gruppo');
+  }
 
   const diretta = altri.length === 1 ? await trovaDiretta(chi.utenteId, altri[0]) : null;
   let uuid = diretta?.uuid;

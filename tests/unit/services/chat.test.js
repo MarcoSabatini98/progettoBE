@@ -36,3 +36,9 @@ test('colleghi: i clienti non vedono lo staff', async () => {
     codice: 'PERMESSO_NEGATO',
   });
 });
+
+test('apriStaff: un gruppo senza titolo non si crea', async () => {
+  await expect(
+    chat.apriStaff({ utenteId: 1, ruolo: 'admin' }, { partecipanti: [2, 3], titolo: ' ' }),
+  ).rejects.toMatchObject({ codice: 'TITOLO_MANCANTE' });
+});
