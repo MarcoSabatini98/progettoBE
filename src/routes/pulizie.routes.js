@@ -13,6 +13,7 @@ const {
   schemaAggiornaAttivita,
   schemaAvanza,
   schemaGiorno,
+  schemaRinvio,
   schemaCreaVoce,
   schemaAggiornaVoce,
 } = require('../validators/pulizie.validator');
@@ -49,6 +50,7 @@ router.post(
   valida({ body: schemaGiorno }),
   controller.autoassegna,
 );
+router.post('/prossima', esegui, controller.prossima);
 
 // ─────────────────────────────────────
 // Attività
@@ -70,6 +72,12 @@ router.post(
   esegui,
   valida({ params: schemaIdParam, body: schemaAvanza }),
   controller.avanza,
+);
+router.post(
+  '/:id/rinvio',
+  esegui,
+  valida({ params: schemaIdParam, body: schemaRinvio }),
+  controller.rinvia,
 );
 
 module.exports = router;
