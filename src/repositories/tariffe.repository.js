@@ -283,6 +283,17 @@ const includeServiziPacchetto = {
   through: { attributes: ['quantita'] },
 };
 
+// Foto in ordine di galleria: la prima è la copertina.
+const includeMediaPacchetto = {
+  model: Media,
+  as: 'media',
+  separate: true,
+  order: [
+    ['ordine', 'ASC'],
+    ['id', 'ASC'],
+  ],
+};
+
 const trovaPacchetti = async (filtri = {}) => {
   const where = {};
   if (filtri.attivo !== undefined) {
@@ -290,7 +301,7 @@ const trovaPacchetti = async (filtri = {}) => {
   }
   return await Pacchetto.findAll({
     where,
-    include: [includeTipologia, includeServiziPacchetto],
+    include: [includeTipologia, includeServiziPacchetto, includeMediaPacchetto],
     order: [
       ['ordine', 'ASC'],
       ['nome', 'ASC'],
@@ -311,15 +322,7 @@ const trovaPacchettiPubblici = async (giorno, lingua) => {
         ...includeServiziPacchetto,
         include: [{ model: Traduzione, as: 'traduzioni', where: { lingua }, required: false }],
       },
-      {
-        model: Media,
-        as: 'media',
-        separate: true,
-        order: [
-          ['ordine', 'ASC'],
-          ['id', 'ASC'],
-        ],
-      },
+      includeMediaPacchetto,
       { model: Traduzione, as: 'traduzioni', where: { lingua }, required: false },
     ],
     order: [['ordine', 'ASC']],
@@ -328,7 +331,7 @@ const trovaPacchettiPubblici = async (giorno, lingua) => {
 
 const trovaPacchettoPerId = async (id, transaction = null) => {
   return await Pacchetto.findByPk(id, {
-    include: [includeTipologia, includeServiziPacchetto],
+    include: [includeTipologia, includeServiziPacchetto, includeMediaPacchetto],
     transaction,
   });
 };

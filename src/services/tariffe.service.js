@@ -13,7 +13,10 @@ const { calcola, contaTassabili } = require('./helpers/calcolo-prezzo');
 const { nonTrovato, richiestaNonValida, nonElaborabile, conflitto } = require('../utils/errori');
 const { applicaTraduzioni } = require('../utils/traduzioni');
 const { slugDa } = require('../utils/slug');
-const { contaNotti, oggi } = require('../utils/date');
+const notifiche = require('./notifiche.service');
+const { PERMESSI } = require('../constants/ruoli.constants');
+const { GIORNI_AVVISO_TASSA } = require('../constants/tariffe.constants');
+const { contaNotti, oggi, aggiungiGiorni, dataItaliana } = require('../utils/date');
 
 // ─────────────────────────────────────
 // Campi scrivibili dal client
@@ -597,6 +600,30 @@ async function eliminaTassa(id) {
   await tariffeRepo.eliminaTassa(id);
 }
 
+/**
+ * Job: la tassa in vigore finisce tra 30, 7 o 1 giorni e il giorno dopo non ne
+ * comincia un'altra. Senza tariffa i preventivi la calcolano a zero, quindi chi
+ * gestisce le tariffe va avvisato per tempo. Senza alcuna tassa non si avvisa.
+ */
+async function avvisaTassaInScadenza() {
+  const tassa = await tassaInVigore(oggi());
+  const giorni = tassa ? contaNotti(oggi(), tassa.valida_al) : null;
+  if (!GIORNI_AVVISO_TASSA.includes(giorni)) {
+    return { avvisati: 0 };
+  }
+  if (await tassaInVigore(aggiungiGiorni(tassa.valida_al, 1))) {
+    return { avvisati: 0 };
+  }
+  const avvisati = await notifiche.aChiPuo(PERMESSI.TARIFFE_GESTISCI, {
+    tipo: 'sistema',
+    priorita: 'avviso',
+    titolo: `Tassa di soggiorno: "${tassa.nome}" finisce il ${dataItaliana(tassa.valida_al)}`,
+    testo: "Dopo non ce n'è un'altra: i soggiorni successivi la calcolerebbero a zero",
+    link: '/staff/tariffe',
+  });
+  return { avvisati: avvisati.length };
+}
+
 module.exports = {
   preventivo,
   codiceValido,
@@ -633,4 +660,5 @@ module.exports = {
   creaTassa,
   aggiornaTassa,
   eliminaTassa,
+  avvisaTassaInScadenza,
 };
