@@ -1,11 +1,13 @@
 // src/services/ospiti.service.js
 //
 // Anagrafiche degli ospiti (dati TULPS per Alloggiati Web) e ospiti di ogni
-// prenotazione. L'anagrafica collegata a un account cliente la modifica solo il
-// cliente dalla sua area personale: lo staff gestisce gli ospiti di passaggio.
+// prenotazione. Lo staff corregge anche l'anagrafica di un cliente registrato
+// (documento rinnovato, nuova residenza, campi mancanti), tenendo allineato
+// l'account; l'email resta la sua, perché è quella con cui accede.
 
 const { transazione } = require('../models');
 const ospitiRepo = require('../repositories/ospiti.repository');
+const utentiRepo = require('../repositories/utenti.repository');
 const prenotazioniRepo = require('../repositories/prenotazioni.repository');
 const tariffe = require('./tariffe.service');
 const { nonTrovato, vietato, richiestaNonValida, conflitto } = require('../utils/errori');
@@ -55,7 +57,12 @@ async function dettaglio(id) {
   if (!ospite) {
     throw nonTrovato('OSPITE_NON_TROVATO', 'Ospite non trovato');
   }
-  return { ...ospite.toJSON(), campi_mancanti: campiMancanti(ospite) };
+  const account = await ospitiRepo.trovaAccountDiOspite(id);
+  return {
+    ...ospite.toJSON(),
+    campi_mancanti: campiMancanti(ospite),
+    cliente_registrato: Boolean(account),
+  };
 }
 
 async function crea(dati) {
@@ -63,31 +70,47 @@ async function crea(dati) {
   return await dettaglio(ospite.id);
 }
 
-/** Lo staff non modifica l'anagrafica di un cliente registrato. */
-async function controllaModificabile(id) {
-  const ospite = await ospitiRepo.trovaOspitePerId(id);
+async function ospiteOppure404(id, transaction = null) {
+  const ospite = await ospitiRepo.trovaOspitePerId(id, transaction);
   if (!ospite) {
     throw nonTrovato('OSPITE_NON_TROVATO', 'Ospite non trovato');
-  }
-  const account = await ospitiRepo.trovaAccountDiOspite(id);
-  if (account) {
-    throw vietato(
-      'DATI_CLIENTE_PROTETTI',
-      'I dati personali del cliente li modifica solo il cliente',
-    );
   }
   return ospite;
 }
 
-async function aggiorna(id, dati) {
-  await controllaModificabile(id);
-  await ospitiRepo.aggiornaOspite(id, datiOspite(dati));
+/**
+ * Per un cliente registrato nome, cognome, telefono e lingua passano anche
+ * all'account, come quando li cambia lui dal profilo.
+ */
+async function aggiorna(id, dati, contesto) {
+  await transazione(contesto, async (transaction) => {
+    const ospite = await ospiteOppure404(id, transaction);
+    const account = await ospitiRepo.trovaAccountDiOspite(id, transaction);
+    if (account && dati.email !== undefined && dati.email !== ospite.email) {
+      throw vietato('EMAIL_ACCESSO_CLIENTE', "L'email di accesso la cambia solo il cliente");
+    }
+
+    await ospitiRepo.aggiornaOspite(id, datiOspite(dati), transaction);
+    if (account) {
+      const { nome, cognome, telefono, lingua } = dati;
+      await utentiRepo.aggiornaUtente(account.id, { nome, cognome, telefono, lingua }, transaction);
+    }
+  });
   return await dettaglio(id);
 }
 
-/** Chi ha soggiorni registrati si conserva: sono dati di pubblica sicurezza. */
+/**
+ * Chi ha soggiorni registrati si conserva: sono dati di pubblica sicurezza.
+ * L'anagrafica di un cliente registrato va via solo con il suo account.
+ */
 async function elimina(id) {
-  await controllaModificabile(id);
+  await ospiteOppure404(id);
+  if (await ospitiRepo.trovaAccountDiOspite(id)) {
+    throw vietato(
+      'OSPITE_CLIENTE',
+      "L'anagrafica di un cliente registrato si elimina con il suo account",
+    );
+  }
 
   const soggiorni = await ospitiRepo.contaSoggiorni(id);
   if (soggiorni > 0) {
