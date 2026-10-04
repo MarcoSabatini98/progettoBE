@@ -54,10 +54,25 @@ function media(valori) {
 // Occupazione
 // ─────────────────────────────────────
 
+// La procedura restituisce il giorno come Date e i DECIMAL come testo.
+function giornoDiOccupazione(riga) {
+  const giorno = riga.giorno instanceof Date ? riga.giorno.toISOString() : String(riga.giorno);
+  return {
+    giorno: giorno.slice(0, 10),
+    camere_disponibili: Number(riga.camere_disponibili),
+    camere_occupate: Number(riga.camere_occupate),
+    occupazione_percentuale: Number(riga.occupazione_percentuale),
+    ricavo_camere: Number(riga.ricavo_camere),
+    prezzo_medio: Number(riga.prezzo_medio),
+  };
+}
+
 /** Giorno per giorno + riepilogo del periodo (dalla procedura del DB). */
 async function occupazione(query) {
   const { dal, al } = periodo(query);
-  const giorni = await analyticsRepo.trovaOccupazioneGiornaliera(dal, al);
+  const giorni = (await analyticsRepo.trovaOccupazioneGiornaliera(dal, al)).map(
+    giornoDiOccupazione,
+  );
 
   let disponibili = 0;
   let vendute = 0;
@@ -238,19 +253,20 @@ async function suggerimentiPrezzo(query = {}) {
     prezzoBase = centesimi(tipologia.prezzo_base);
   }
 
-  const giorni = await analyticsRepo.trovaOccupazioneGiornaliera(dal, al);
+  const giorni = (await analyticsRepo.trovaOccupazioneGiornaliera(dal, al)).map(
+    giornoDiOccupazione,
+  );
   const eventi = await contenutiRepo.trovaEventi({ dal, al });
 
-  return giorni.map((riga) => {
-    const giorno = String(riga.giorno).slice(0, 10);
+  return giorni.map(({ giorno, occupazione_percentuale }) => {
     const suggerimento = suggerimentoPrezzo({
-      occupazione_percentuale: riga.occupazione_percentuale,
+      occupazione_percentuale,
       giorni_mancanti: contaNotti(oggi(), giorno),
       eventi: eventiDelGiorno(eventi, giorno),
     });
     return {
       giorno,
-      occupazione_percentuale: Number(riga.occupazione_percentuale),
+      occupazione_percentuale,
       ...suggerimento,
       prezzo_suggerito:
         prezzoBase === null
