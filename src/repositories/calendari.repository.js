@@ -120,8 +120,8 @@ const creaCalendario = async (dati) => {
   return await CalendarioEsterno.create(dati);
 };
 
-const aggiornaCalendario = async (id, dati) => {
-  return await CalendarioEsterno.update(dati, { where: { id } });
+const aggiornaCalendario = async (id, dati, transaction = null) => {
+  return await CalendarioEsterno.update(dati, { where: { id }, transaction });
 };
 
 // Le date importate vanno via in cascata.

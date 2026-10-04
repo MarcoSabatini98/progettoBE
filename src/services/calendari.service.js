@@ -171,14 +171,26 @@ async function creaCalendario(dati) {
   return await calendarioOppure404(nuovo.id);
 }
 
+/**
+ * Disattivato, le sue date bloccate vanno via subito: il job non lo legge più
+ * e resterebbero ferme. Riattivato, la prossima sincronizzazione le reimporta.
+ */
 async function aggiornaCalendario(id, dati) {
   await calendarioOppure404(id);
-  await calendariRepo.aggiornaCalendario(id, {
-    camera_id: dati.camera_id,
-    canale: dati.canale,
-    nome: dati.nome,
-    url: dati.url,
-    attivo: dati.attivo,
+  await sequelize.transaction(async (transaction) => {
+    await calendariRepo.aggiornaCalendario(
+      id,
+      {
+        canale: dati.canale,
+        nome: dati.nome,
+        url: dati.url,
+        attivo: dati.attivo,
+      },
+      transaction,
+    );
+    if (dati.attivo === false) {
+      await calendariRepo.eliminaImportatiTranne(id, [], transaction);
+    }
   });
   return await calendarioOppure404(id);
 }
