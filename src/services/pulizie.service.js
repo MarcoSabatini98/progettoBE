@@ -517,8 +517,32 @@ async function autoassegna(giorno = oggi()) {
 }
 
 /** Job del mattino: attività del giorno e, se a turno, una camera a ogni addetto. */
+/**
+ * Le pulizie non finite dei giorni prima tornano in coda oggi, da rifare da capo.
+ * Se oggi la camera ha già un'attività dello stesso tipo, quella vecchia è un doppione.
+ */
+async function riportaArretrate(giorno) {
+  const arretrate = await pulizieRepo.trovaArretrate(giorno);
+  for (const attivita of arretrate) {
+    try {
+      await pulizieRepo.aggiornaAttivita(attivita.id, {
+        data_prevista: giorno,
+        stato: 'da_fare',
+        assegnata_a: null,
+        iniziata_il: null,
+        rinviata_il: null,
+      });
+    } catch (errore) {
+      if (errore.name !== 'SequelizeUniqueConstraintError') throw errore;
+      await pulizieRepo.eliminaAttivita(attivita.id);
+    }
+  }
+  return arretrate.length;
+}
+
 async function preparaGiornata() {
-  const giornata = await generaGiornata();
+  const riportate = await riportaArretrate(oggi());
+  const giornata = { riportate, ...(await generaGiornata()) };
   if (!(await aTurno())) {
     return giornata;
   }
@@ -541,6 +565,7 @@ module.exports = {
   prossima,
   ordinaCoda,
   generaGiornata,
+  riportaArretrate,
   addetti,
   autoassegna,
   preparaGiornata,

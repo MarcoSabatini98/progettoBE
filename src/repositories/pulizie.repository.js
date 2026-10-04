@@ -70,6 +70,17 @@ const trovaCoda = async (giorno) => {
   });
 };
 
+// Non finite dei giorni prima. I riassetti no: quello del giorno li sostituisce.
+const trovaArretrate = async (giorno) => {
+  return await AttivitaPulizia.findAll({
+    where: {
+      data_prevista: { [Op.lt]: giorno },
+      stato: ['da_fare', 'in_corso'],
+      tipo: { [Op.ne]: 'riassetto' },
+    },
+  });
+};
+
 // Da fare o in corso con un addetto: chi è impegnato e su quale piano.
 const trovaAperteAssegnate = async (giorno) => {
   return await AttivitaPulizia.findAll({
@@ -184,6 +195,7 @@ module.exports = {
   trovaNonAssegnate,
   contaAttivitaPerAddetto,
   trovaCoda,
+  trovaArretrate,
   trovaAperteAssegnate,
   trovaUltimaFinita,
   prendiSeLibera,

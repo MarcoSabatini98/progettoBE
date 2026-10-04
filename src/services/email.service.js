@@ -152,6 +152,26 @@ const MODELLI = {
       ],
     }),
   },
+  invito_recensione: {
+    it: (d) => ({
+      oggetto: 'Com’è andato il soggiorno?',
+      righe: [
+        `Gentile ${d.nome},`,
+        `grazie per aver soggiornato da noi (prenotazione ${d.codice}).`,
+        'Ci farebbe piacere sapere com’è andata: puoi lasciare una recensione dal link qui sotto.',
+      ],
+      link: d.link,
+    }),
+    en: (d) => ({
+      oggetto: 'How was your stay?',
+      righe: [
+        `Dear ${d.nome},`,
+        `thank you for staying with us (booking ${d.codice}).`,
+        'We would love to hear how it went: you can leave a review using the link below.',
+      ],
+      link: d.link,
+    }),
+  },
   link_pagamento: {
     it: (d) => ({
       oggetto: `Pagamento prenotazione ${d.codice}`,
