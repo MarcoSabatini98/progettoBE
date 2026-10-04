@@ -1931,7 +1931,7 @@ INSERT INTO impostazioni (chiave, valore, tipo, gruppo, descrizione, pubblica) V
   ('limite_contanti',             '5000',      'numero',   'fiscale',       'Limite di legge per i pagamenti in contanti (importo non raggiungibile)', FALSE),
   -- fedeltà e pulizie
   ('fedelta_punti_per_notte',     '10',        'numero',   'fedelta',       'Punti fedeltà assegnati per ogni notte di soggiorno concluso', TRUE),
-  ('pulizie_richiedi_ispezione',  '1',         'booleano', 'pulizie',       'Le camere pulite restano da ispezionare finché il responsabile non verifica', FALSE),
+  ('pulizie_richiedi_ispezione',  '1',         'booleano', 'pulizie',       'Le camere pulite restano da ispezionare finché il responsabile non verifica', TRUE),
   ('pulizie_autoassegna',         '0',         'booleano', 'pulizie',       'Ogni mattina assegna le pulizie libere agli addetti con meno attività', FALSE),
   -- localizzazione
   ('fuso_orario',                 'Europe/Rome', 'testo',  'localizzazione','Fuso orario della struttura', TRUE),
