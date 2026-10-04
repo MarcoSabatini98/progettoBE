@@ -217,6 +217,15 @@ const contaAttiveCliente = async (utenteId) => {
   });
 };
 
+/** Prenotazioni con incassato oltre il dovuto: il rimborso va ancora fatto. */
+const trovaDaRimborsare = async () => {
+  return await SaldoPrenotazione.findAll({
+    where: { saldo: { [Op.lt]: 0 } },
+    attributes: ['prenotazione_id', 'codice'],
+    order: [['prenotazione_id', 'ASC']],
+  });
+};
+
 const trovaSaldo = async (prenotazioneId, transaction = null) => {
   return await SaldoPrenotazione.findByPk(prenotazioneId, { transaction });
 };
@@ -293,6 +302,7 @@ module.exports = {
   trovaDaRecensire,
   contaAttiveCliente,
   trovaSaldo,
+  trovaDaRimborsare,
   creaPrenotazione,
   aggiornaPrenotazione,
   cancellaScadute,

@@ -49,6 +49,12 @@ const JOB = [
     esegui: () => pagamentiService.annullaOnlineAbbandonati(),
   },
   {
+    nome: 'rimborsi-dovuti',
+    quando: '0 9 * * *', // alle 9:00
+    descrizione: 'Avvisa lo staff delle prenotazioni incassate oltre il dovuto da rimborsare',
+    esegui: () => pagamentiService.avvisaRimborsiDovuti(),
+  },
+  {
     nome: 'riepiloghi-chat',
     quando: '*/5 * * * *', // ogni 5 minuti
     descrizione: 'Email a chi ha messaggi della chat non letti',
