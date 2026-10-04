@@ -273,9 +273,16 @@ async function registraErrore(calendario, errore) {
 /**
  * Sincronizza un calendario: gli eventi futuri del canale diventano date
  * bloccate (aggiornate per UID, tolte se il canale le ha cancellate).
+ * Un calendario disattivato non si legge: le sue date sono state tolte apposta.
  */
 async function sincronizza(id) {
   const calendario = await calendarioOppure404(id);
+  if (!calendario.attivo) {
+    throw richiestaNonValida(
+      'CALENDARIO_DISATTIVATO',
+      'Il calendario è disattivato: riattivalo per sincronizzarlo',
+    );
+  }
   let eventi;
   try {
     eventi = leggiIcs(await scarica(calendario.url)).filter((evento) => evento.fine > oggi());

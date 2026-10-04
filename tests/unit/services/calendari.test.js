@@ -39,3 +39,11 @@ test('le altre modifiche lasciano le date al prossimo giro del job', async () =>
   expect(calendariRepo.aggiornaCalendario).toHaveBeenCalled();
   expect(calendariRepo.eliminaImportatiTranne).not.toHaveBeenCalled();
 });
+
+test('un calendario disattivato non si sincronizza', async () => {
+  calendariRepo.trovaCalendarioPerId.mockResolvedValue({ id: 4, attivo: false });
+
+  await expect(calendari.sincronizza(4)).rejects.toMatchObject({
+    codice: 'CALENDARIO_DISATTIVATO',
+  });
+});
