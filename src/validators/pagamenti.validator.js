@@ -72,7 +72,7 @@ const schemaRimborsa = Joi.object({
   // vuoto = rimborso totale
   importo: importoPagato,
   motivo: motivo.required(),
-  // rimborso registrato anche se il provider non risponde
+  // anche oltre quanto incassato in più del dovuto (es. gesto commerciale)
   forza: Joi.boolean(),
 });
 

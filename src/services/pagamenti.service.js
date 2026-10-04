@@ -14,9 +14,11 @@ const pagamentiRepo = require('../repositories/pagamenti.repository');
 const prenotazioniRepo = require('../repositories/prenotazioni.repository');
 const impostazioni = require('./impostazioni.service');
 const prenotazioni = require('./prenotazioni.service');
+const notifiche = require('./notifiche.service');
 const stripe = require('../utils/stripe');
 const paypal = require('../utils/paypal');
 const { METODI_ONLINE, METODI_STRUTTURA } = require('../constants/pagamenti.constants');
+const { PERMESSI } = require('../constants/ruoli.constants');
 const {
   nonTrovato,
   conflitto,
@@ -592,6 +594,28 @@ async function annullaOnlineAbbandonati() {
   });
 }
 
+/**
+ * Prenotazioni incassate oltre il dovuto (cancellata dal cliente, pagamento
+ * arrivato tardi): lo staff deve fare il rimborso dai pagamenti.
+ * ponytail: l'avviso si ripete ogni giorno finché il saldo non torna a zero.
+ */
+async function avvisaRimborsiDovuti() {
+  const daRimborsare = await prenotazioniRepo.trovaDaRimborsare();
+  if (daRimborsare.length === 0) return { avvisati: 0 };
+
+  const destinatari = await notifiche.aChiPuo(PERMESSI.PAGAMENTI_REGISTRA, {
+    tipo: 'pagamento',
+    priorita: 'avviso',
+    titolo: `Rimborsi da fare: ${daRimborsare.length}`,
+    testo: daRimborsare.map((saldo) => saldo.codice).join(', '),
+    link:
+      daRimborsare.length === 1
+        ? `/staff/prenotazioni/${daRimborsare[0].prenotazione_id}`
+        : '/staff/prenotazioni',
+  });
+  return { avvisati: destinatari.length };
+}
+
 module.exports = {
   diPrenotazione,
   elenco,
@@ -604,4 +628,5 @@ module.exports = {
   webhookPaypal,
   rimborsa,
   annullaOnlineAbbandonati,
+  avvisaRimborsiDovuti,
 };
