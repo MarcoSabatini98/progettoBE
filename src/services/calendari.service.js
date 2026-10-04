@@ -171,14 +171,26 @@ async function creaCalendario(dati) {
   return await calendarioOppure404(nuovo.id);
 }
 
+/**
+ * Disattivato, le sue date bloccate vanno via subito: il job non lo legge più
+ * e resterebbero ferme. Riattivato, la prossima sincronizzazione le reimporta.
+ */
 async function aggiornaCalendario(id, dati) {
   await calendarioOppure404(id);
-  await calendariRepo.aggiornaCalendario(id, {
-    camera_id: dati.camera_id,
-    canale: dati.canale,
-    nome: dati.nome,
-    url: dati.url,
-    attivo: dati.attivo,
+  await sequelize.transaction(async (transaction) => {
+    await calendariRepo.aggiornaCalendario(
+      id,
+      {
+        canale: dati.canale,
+        nome: dati.nome,
+        url: dati.url,
+        attivo: dati.attivo,
+      },
+      transaction,
+    );
+    if (dati.attivo === false) {
+      await calendariRepo.eliminaImportatiTranne(id, [], transaction);
+    }
   });
   return await calendarioOppure404(id);
 }
@@ -261,9 +273,16 @@ async function registraErrore(calendario, errore) {
 /**
  * Sincronizza un calendario: gli eventi futuri del canale diventano date
  * bloccate (aggiornate per UID, tolte se il canale le ha cancellate).
+ * Un calendario disattivato non si legge: le sue date sono state tolte apposta.
  */
 async function sincronizza(id) {
   const calendario = await calendarioOppure404(id);
+  if (!calendario.attivo) {
+    throw richiestaNonValida(
+      'CALENDARIO_DISATTIVATO',
+      'Il calendario è disattivato: riattivalo per sincronizzarlo',
+    );
+  }
   let eventi;
   try {
     eventi = leggiIcs(await scarica(calendario.url)).filter((evento) => evento.fine > oggi());
