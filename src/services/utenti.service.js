@@ -266,7 +266,7 @@ async function controllaNonUltimoAdmin() {
 
 /**
  * Modifica di un account da parte dell'admin: ruolo e stato sempre; nome e
- * contatti solo per lo staff. Mai i dati personali di un cliente.
+ * contatti solo per lo staff. Quelli di un cliente passano dalla scheda ospite.
  * Cambio di ruolo o disattivazione chiudono tutte le sessioni e
  * riallineano i gruppi chat di squadra.
  */
@@ -283,7 +283,7 @@ async function aggiornaAccount(id, dati, contesto) {
   if (cambiaPersonali && utente.ruolo === RUOLI.CLIENTE) {
     throw vietato(
       'DATI_CLIENTE_PROTETTI',
-      'I dati personali del cliente li modifica solo il cliente',
+      'I dati personali del cliente si modificano dalla sua scheda ospite',
     );
   }
   if (dati.ruolo !== undefined && dati.ruolo !== utente.ruolo) {

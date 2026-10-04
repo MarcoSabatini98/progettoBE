@@ -23,7 +23,7 @@ const crea = async (req, res) => {
 };
 
 const aggiorna = async (req, res) => {
-  const ospite = await ospitiService.aggiorna(req.params.id, req.body);
+  const ospite = await ospitiService.aggiorna(req.params.id, req.body, req.contesto);
   return inviaSuccesso(res, 200, ospite);
 };
 
