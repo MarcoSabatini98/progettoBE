@@ -10,9 +10,13 @@ const TIPI_SCONTO = Object.freeze(['percentuale', 'importo']);
 
 const MOTIVI_PUNTI = Object.freeze(['soggiorno', 'bonus', 'rettifica', 'annullamento']);
 
+// Giorni prima della fine della tassa di soggiorno in cui si avvisa, se non ne segue un'altra.
+const GIORNI_AVVISO_TASSA = Object.freeze([30, 7, 1]);
+
 module.exports = {
   TIPI_VARIAZIONE_PIANO,
   TIPI_VARIAZIONE_PERIODO,
   TIPI_SCONTO,
   MOTIVI_PUNTI,
+  GIORNI_AVVISO_TASSA,
 };

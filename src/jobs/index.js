@@ -24,6 +24,7 @@ const pulizieService = require('../services/pulizie.service');
 const alloggiatiService = require('../services/alloggiati.service');
 const notificheService = require('../services/notifiche.service');
 const authService = require('../services/auth.service');
+const tariffeService = require('../services/tariffe.service');
 
 // quando: minuto ora giorno mese giorno-settimana.
 // I job con una data (promemoria, pulizie) girano di giorno: oggi() è in UTC
@@ -71,6 +72,12 @@ const JOB = [
     quando: '0 9 * * *', // alle 9:00
     descrizione: 'Avvisa la reception delle schedine Alloggiati ancora da inviare',
     esegui: () => alloggiatiService.avvisaDaInviare(),
+  },
+  {
+    nome: 'tassa-in-scadenza',
+    quando: '30 9 * * *', // alle 9:30
+    descrizione: 'Avvisa chi gestisce le tariffe se la tassa di soggiorno finisce senza seguito',
+    esegui: () => tariffeService.avvisaTassaInScadenza(),
   },
   {
     nome: 'promemoria-checkin',
