@@ -48,6 +48,12 @@ async function permessiDi(ruolo) {
   return [...(mappa.get(ruolo) ?? [])].sort();
 }
 
+/** Ruoli che hanno il permesso, admin compreso. */
+async function ruoliCon(permesso) {
+  const mappa = await caricaPermessi();
+  return [...mappa].filter(([, codici]) => codici.has(permesso)).map(([ruolo]) => ruolo);
+}
+
 /** Ruoli, catalogo dei permessi e assegnazioni: la matrice per l'admin. */
 async function matrice() {
   const permessi = await permessiRepo.trovaPermessi();
@@ -146,6 +152,7 @@ async function impostaRegoleChat(coppie) {
 module.exports = {
   ha,
   permessiDi,
+  ruoliCon,
   matrice,
   impostaPermessi,
   regoleChat,
