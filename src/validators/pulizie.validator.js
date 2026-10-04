@@ -59,6 +59,9 @@ const schemaAvanza = Joi.object({
 // Vuoto = oggi.
 const schemaGiorno = Joi.object({ giorno: data });
 
+// "Non disturbare": più tardi in giornata o domani.
+const schemaRinvio = Joi.object({ quando: Joi.string().valid('oggi', 'domani').required() });
+
 // ─────────────────────────────────────
 // Voci della checklist
 // ─────────────────────────────────────
@@ -88,6 +91,7 @@ module.exports = {
   schemaAggiornaAttivita,
   schemaAvanza,
   schemaGiorno,
+  schemaRinvio,
   schemaCreaVoce,
   schemaAggiornaVoce,
 };

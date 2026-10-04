@@ -7,6 +7,9 @@
 // Chi fa cosa:
 //  - pulizie.esegui: avanza le PROPRIE attività (o prende quelle libere)
 //  - pulizie.gestisci: crea, assegna, verifica, riapre qualsiasi attività
+//
+// Pulizie a turno (impostazione pulizie_autoassegna): al mattino una camera a
+// ogni addetto, a chi finisce la successiva sullo stesso piano o il più vicino.
 
 const pulizieRepo = require('../repositories/pulizie.repository');
 const prenotazioniRepo = require('../repositories/prenotazioni.repository');
@@ -15,9 +18,15 @@ const permessi = require('./permessi.service');
 const notifiche = require('./notifiche.service');
 const impostazioni = require('./impostazioni.service');
 const { PERMESSI, SQUADRE } = require('../constants/ruoli.constants');
-const { TRANSIZIONI_PULIZIA } = require('../constants/pulizie.constants');
-const { nonTrovato, vietato, richiestaNonValida, nonElaborabile } = require('../utils/errori');
-const { oggi } = require('../utils/date');
+const { TRANSIZIONI_PULIZIA, PRIORITA } = require('../constants/pulizie.constants');
+const {
+  nonTrovato,
+  vietato,
+  richiestaNonValida,
+  nonElaborabile,
+  conflitto,
+} = require('../utils/errori');
+const { oggi, aggiungiGiorni } = require('../utils/date');
 
 async function attivitaOppure404(id) {
   const attivita = await pulizieRepo.trovaAttivitaPerId(id);
@@ -37,6 +46,16 @@ async function voceOppure404(id) {
 
 async function puoGestire(contesto) {
   return await permessi.ha(contesto.ruolo, PERMESSI.PULIZIE_GESTISCI);
+}
+
+/** Solo chi gestisce tocca le attività assegnate ad altri. Restituisce se gestisce. */
+async function controllaAltrui(attivita, contesto) {
+  const gestore = await puoGestire(contesto);
+  const altrui = attivita.assegnata_a && attivita.assegnata_a !== contesto.utenteId;
+  if (altrui && !gestore) {
+    throw vietato('PULIZIA_ALTRUI', "L'attività è assegnata a un altro addetto");
+  }
+  return gestore;
 }
 
 async function avvisaAddetto(attivita) {
@@ -219,11 +238,7 @@ function controllaTransizione(da, a, gestore) {
  */
 async function avanza(id, dati, contesto) {
   const attivita = await attivitaOppure404(id);
-  const gestore = await puoGestire(contesto);
-  const altrui = attivita.assegnata_a && attivita.assegnata_a !== contesto.utenteId;
-  if (altrui && !gestore) {
-    throw vietato('PULIZIA_ALTRUI', "L'attività è assegnata a un altro addetto");
-  }
+  const gestore = await controllaAltrui(attivita, contesto);
 
   const modifiche = { note: dati.note };
   let checklist = attivita.checklist;
@@ -249,9 +264,14 @@ async function avanza(id, dati, contesto) {
     if (dati.stato === 'in_corso' && !attivita.assegnata_a) {
       modifiche.assegnata_a = contesto.utenteId;
     }
+    // Rimessa da fare: il tempo riparte quando la si riprende.
+    if (dati.stato === 'da_fare') {
+      modifiche.iniziata_il = null;
+    }
     // Ispezione respinta: si rifà da capo.
     if (attivita.stato === 'completata' && dati.stato === 'in_corso') {
       modifiche.checklist = checklist.map((riga) => ({ ...riga, fatto: false }));
+      modifiche.completata_il = null;
     }
     if (dati.stato === 'verificata') {
       modifiche.verificata_da = contesto.utenteId;
@@ -273,7 +293,49 @@ async function avanza(id, dati, contesto) {
       contesto.utenteId,
     );
   }
+  if (modifiche.stato === 'completata' && aggiornata.assegnata_a && (await aTurno())) {
+    await assegnaProssima(
+      aggiornata.assegnata_a,
+      aggiornata.data_prevista,
+      aggiornata.camera.piano,
+    );
+  }
   return aggiornata;
+}
+
+/**
+ * "Non disturbare": la camera torna libera, in fondo alla coda di oggi o a
+ * domani. A turno, l'addetto passa subito a un'altra camera.
+ * dati: { quando: 'oggi' | 'domani' }
+ */
+async function rinvia(id, { quando }, contesto) {
+  const attivita = await attivitaOppure404(id);
+  await controllaAltrui(attivita, contesto);
+  if (!['da_fare', 'in_corso'].includes(attivita.stato)) {
+    throw richiestaNonValida(
+      'PULIZIA_NON_RINVIABILE',
+      'Si rinviano solo pulizie non ancora finite',
+    );
+  }
+
+  const domani = quando === 'domani';
+  await pulizieRepo.aggiornaAttivita(id, {
+    stato: 'da_fare',
+    assegnata_a: null,
+    iniziata_il: null,
+    rinviata_il: domani ? null : new Date(),
+    data_prevista: domani ? aggiungiGiorni(attivita.data_prevista, 1) : undefined,
+  });
+
+  if (attivita.assegnata_a && (await aTurno())) {
+    await assegnaProssima(
+      attivita.assegnata_a,
+      attivita.data_prevista,
+      attivita.camera?.piano ?? null,
+      id,
+    );
+  }
+  return await attivitaOppure404(id);
 }
 
 // ─────────────────────────────────────
@@ -316,11 +378,117 @@ async function addetti() {
   return await utentiRepo.trovaStaffAttivo(SQUADRE.housekeeping);
 }
 
+// ─────────────────────────────────────
+// Pulizie a turno
+// ─────────────────────────────────────
+
+async function aTurno() {
+  return await impostazioni.leggi('pulizie_autoassegna', false);
+}
+
+/**
+ * Ordine in cui prendere le camere libere: le rinviate ("non disturbare") in
+ * fondo, poi le più urgenti, poi la più vicina al piano di partenza. Senza
+ * partenza (inizio turno) il piano con meno addetti, così ci si sparpaglia.
+ * A parità il piano più basso e il numero di camera.
+ * ponytail: vicino-più-vicino, a parità di distanza scende prima; uno "sweep"
+ * per direzione se serve.
+ */
+function ordinaCoda(coda, partenza, affollamento = new Map()) {
+  const chiave = (attivita) => {
+    const piano = attivita.camera?.piano ?? 0;
+    const distanza =
+      partenza === null ? (affollamento.get(piano) ?? 0) : Math.abs(piano - partenza);
+    return [attivita.rinviata_il ? 1 : 0, -PRIORITA.indexOf(attivita.priorita), distanza, piano];
+  };
+  return [...coda].sort((a, b) => {
+    const [ka, kb] = [chiave(a), chiave(b)];
+    const diversa = ka.findIndex((valore, indice) => valore !== kb[indice]);
+    if (diversa >= 0) {
+      return ka[diversa] - kb[diversa];
+    }
+    return String(a.camera?.numero).localeCompare(String(b.camera?.numero), undefined, {
+      numeric: true,
+    });
+  });
+}
+
+/** Attività aperte per piano: dove c'è già gente. */
+function contaPerPiano(aperte) {
+  const affollamento = new Map();
+  for (const attivita of aperte) {
+    const piano = attivita.camera?.piano ?? 0;
+    affollamento.set(piano, (affollamento.get(piano) ?? 0) + 1);
+  }
+  return affollamento;
+}
+
+/**
+ * Dà all'addetto la prossima camera libera del giorno, se non ne ha già una
+ * aperta. `esclusa`: la camera appena rinviata, da non ridargli.
+ * Restituisce l'attività presa o null.
+ */
+async function assegnaProssima(utenteId, giorno, partenza = null, esclusa = null) {
+  const aperte = await pulizieRepo.trovaAperteAssegnate(giorno);
+  if (aperte.some((attivita) => attivita.assegnata_a === utenteId)) {
+    return null;
+  }
+
+  const coda = (await pulizieRepo.trovaCoda(giorno)).filter((attivita) => attivita.id !== esclusa);
+  for (const candidata of ordinaCoda(coda, partenza, contaPerPiano(aperte))) {
+    // Un altro addetto può averla presa nel frattempo: si passa alla successiva.
+    const [prese] = await pulizieRepo.prendiSeLibera(candidata.id, utenteId);
+    if (prese > 0) {
+      const presa = await attivitaOppure404(candidata.id);
+      await avvisaAddetto(presa);
+      return presa;
+    }
+  }
+  return null;
+}
+
+/** Piano dell'ultima camera finita nel giorno dall'addetto: da lì riprende. */
+async function pianoDiPartenza(utenteId, giorno) {
+  const ultima = await pulizieRepo.trovaUltimaFinita(utenteId, giorno);
+  return ultima?.camera?.piano ?? null;
+}
+
+/** Una camera a ogni addetto libero (job del mattino o pulsante "Assegna"). */
+async function distribuisci(giorno) {
+  let assegnate = 0;
+  for (const addetto of await addetti()) {
+    const partenza = await pianoDiPartenza(addetto.id, giorno);
+    if (await assegnaProssima(addetto.id, giorno, partenza)) {
+      assegnate += 1;
+    }
+  }
+  const coda = await pulizieRepo.trovaCoda(giorno);
+  return { assegnate, non_assegnate: coda.length };
+}
+
+/**
+ * "Prossima camera": l'addetto (o il titolare da solo) se ne prende una.
+ * Funziona anche senza pulizie a turno.
+ */
+async function prossima(contesto) {
+  const giorno = oggi();
+  const partenza = await pianoDiPartenza(contesto.utenteId, giorno);
+  const presa = await assegnaProssima(contesto.utenteId, giorno, partenza);
+  if (presa) {
+    return presa;
+  }
+  const aperte = await pulizieRepo.trovaAperteAssegnate(giorno);
+  if (aperte.some((attivita) => attivita.assegnata_a === contesto.utenteId)) {
+    throw conflitto('PULIZIA_IN_CORSO', 'Finisci prima la camera che hai già');
+  }
+  throw nonTrovato('NESSUNA_PULIZIA_LIBERA', 'Non ci sono camere libere da pulire');
+}
+
 /**
  * Assegna le attività libere del giorno agli addetti attivi, ognuna a chi
  * ne ha meno (le urgenti per prime).
  */
-async function autoassegna(giorno = oggi()) {
+async function bilancia(giorno) {
   const libere = await pulizieRepo.trovaNonAssegnate(giorno);
   const squadra = await addetti();
   if (libere.length === 0 || squadra.length === 0) {
@@ -343,13 +511,18 @@ async function autoassegna(giorno = oggi()) {
   return { assegnate: libere.length, non_assegnate: 0 };
 }
 
-/** Job del mattino: attività del giorno e, se attiva l'impostazione, assegnazione automatica. */
+/** A turno una camera per addetto, altrimenti tutte le libere bilanciate. */
+async function autoassegna(giorno = oggi()) {
+  return (await aTurno()) ? await distribuisci(giorno) : await bilancia(giorno);
+}
+
+/** Job del mattino: attività del giorno e, se a turno, una camera a ogni addetto. */
 async function preparaGiornata() {
   const giornata = await generaGiornata();
-  if (!(await impostazioni.leggi('pulizie_autoassegna', false))) {
+  if (!(await aTurno())) {
     return giornata;
   }
-  return { ...giornata, ...(await autoassegna()) };
+  return { ...giornata, ...(await distribuisci(oggi())) };
 }
 
 module.exports = {
@@ -364,6 +537,9 @@ module.exports = {
   aggiorna,
   elimina,
   avanza,
+  rinvia,
+  prossima,
+  ordinaCoda,
   generaGiornata,
   addetti,
   autoassegna,

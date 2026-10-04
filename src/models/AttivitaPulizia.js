@@ -71,6 +71,11 @@ const AttivitaPulizia = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    // "Non disturbare": l'attività torna in fondo alla coda del giorno.
+    rinviata_il: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
     verificata_il: {
       type: DataTypes.DATE,
       allowNull: true,

@@ -961,6 +961,7 @@ CREATE TABLE attivita_pulizia (
   note              TEXT          NULL,
   iniziata_il       DATETIME      NULL,
   completata_il     DATETIME      NULL,
+  rinviata_il       DATETIME      NULL,     -- "non disturbare": torna in fondo alla coda del giorno
   verificata_il     DATETIME      NULL,
   verificata_da     INT UNSIGNED  NULL,
   creato_da         INT UNSIGNED  NULL,
@@ -1596,6 +1597,7 @@ BEGIN
   IF NEW.stato <> OLD.stato THEN
     UPDATE camere
        SET stato_pulizia = CASE NEW.stato
+             WHEN 'da_fare'    THEN 'sporca'  -- lasciata a metà (rinvio)
              WHEN 'in_corso'   THEN 'in_pulizia'
              WHEN 'completata' THEN IF(fn_impostazione_numero('pulizie_richiedi_ispezione', 1) = 1, 'da_ispezionare', 'pulita')
              WHEN 'verificata' THEN 'pulita'
@@ -1932,7 +1934,7 @@ INSERT INTO impostazioni (chiave, valore, tipo, gruppo, descrizione, pubblica) V
   -- fedeltà e pulizie
   ('fedelta_punti_per_notte',     '10',        'numero',   'fedelta',       'Punti fedeltà assegnati per ogni notte di soggiorno concluso', TRUE),
   ('pulizie_richiedi_ispezione',  '1',         'booleano', 'pulizie',       'Le camere pulite restano da ispezionare finché il responsabile non verifica', TRUE),
-  ('pulizie_autoassegna',         '0',         'booleano', 'pulizie',       'Ogni mattina assegna le pulizie libere agli addetti con meno attività', FALSE),
+  ('pulizie_autoassegna',         '0',         'booleano', 'pulizie',       'Pulizie a turno: ogni mattina una camera a ogni addetto, a chi finisce la successiva sullo stesso piano o il più vicino', FALSE),
   -- localizzazione
   ('fuso_orario',                 'Europe/Rome', 'testo',  'localizzazione','Fuso orario della struttura', TRUE),
   ('lingua_predefinita',          'it',        'testo',    'localizzazione','Lingua predefinita del sito', TRUE),

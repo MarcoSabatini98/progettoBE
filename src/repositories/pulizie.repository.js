@@ -10,7 +10,7 @@ const { AttivitaPulizia, ChecklistModello, Camera, Prenotazione, Utente } = requ
 const persona = (as) => ({ model: Utente, as, attributes: ['id', 'nome', 'cognome'] });
 
 const includeAttivita = [
-  { model: Camera, as: 'camera', attributes: ['id', 'numero', 'nome', 'stato_pulizia'] },
+  { model: Camera, as: 'camera', attributes: ['id', 'numero', 'nome', 'piano', 'stato_pulizia'] },
   { model: Prenotazione, as: 'prenotazione', attributes: ['id', 'codice', 'data_partenza'] },
   persona('addetto'),
   persona('verificatore'),
@@ -56,6 +56,48 @@ const trovaNonAssegnate = async (giorno) => {
       ['id', 'ASC'],
     ],
   });
+};
+
+// ─── Pulizie a turno ───
+
+const cameraConPiano = { model: Camera, as: 'camera', attributes: ['id', 'numero', 'piano'] };
+
+// Coda del giorno: da fare e senza addetto. L'ordine lo sceglie il service.
+const trovaCoda = async (giorno) => {
+  return await AttivitaPulizia.findAll({
+    where: { data_prevista: giorno, stato: 'da_fare', assegnata_a: null },
+    include: [cameraConPiano],
+  });
+};
+
+// Da fare o in corso con un addetto: chi è impegnato e su quale piano.
+const trovaAperteAssegnate = async (giorno) => {
+  return await AttivitaPulizia.findAll({
+    where: {
+      data_prevista: giorno,
+      stato: ['da_fare', 'in_corso'],
+      assegnata_a: { [Op.ne]: null },
+    },
+    include: [cameraConPiano],
+  });
+};
+
+// Ultima camera finita dall'addetto nel giorno: da lì riparte il turno.
+const trovaUltimaFinita = async (utenteId, giorno) => {
+  return await AttivitaPulizia.findOne({
+    where: { data_prevista: giorno, assegnata_a: utenteId, stato: ['completata', 'verificata'] },
+    include: [cameraConPiano],
+    order: [['completata_il', 'DESC']],
+  });
+};
+
+// La assegna solo se è ancora libera: due addetti che finiscono insieme non
+// prendono la stessa camera. Restituisce [righe aggiornate].
+const prendiSeLibera = async (id, utenteId) => {
+  return await AttivitaPulizia.update(
+    { assegnata_a: utenteId },
+    { where: { id, stato: 'da_fare', assegnata_a: null } },
+  );
 };
 
 // Quante attività ha già ciascun addetto nel giorno: [{ assegnata_a, count }].
@@ -141,6 +183,10 @@ module.exports = {
   trovaAttivitaDelGiorno,
   trovaNonAssegnate,
   contaAttivitaPerAddetto,
+  trovaCoda,
+  trovaAperteAssegnate,
+  trovaUltimaFinita,
+  prendiSeLibera,
   trovaAttivitaAperte,
   trovaSenzaChecklist,
   creaAttivita,

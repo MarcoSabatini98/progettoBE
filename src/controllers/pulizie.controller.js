@@ -41,6 +41,18 @@ const avanza = async (req, res) => {
   return inviaSuccesso(res, 200, attivita);
 };
 
+/** "Non disturbare": la camera torna libera più tardi o domani. */
+const rinvia = async (req, res) => {
+  const attivita = await pulizieService.rinvia(req.params.id, req.body, req.contesto);
+  return inviaSuccesso(res, 200, attivita);
+};
+
+/** Chi chiama si prende la prossima camera libera di oggi. */
+const prossima = async (req, res) => {
+  const attivita = await pulizieService.prossima(req.contesto);
+  return inviaSuccesso(res, 200, attivita);
+};
+
 /** Riassetti delle camere occupate e checklist mancanti del giorno (predefinito oggi). */
 const generaGiornata = async (req, res) => {
   const esito = await pulizieService.generaGiornata(req.body.giorno);
@@ -90,6 +102,8 @@ module.exports = {
   aggiorna,
   elimina,
   avanza,
+  rinvia,
+  prossima,
   generaGiornata,
   addetti,
   autoassegna,
