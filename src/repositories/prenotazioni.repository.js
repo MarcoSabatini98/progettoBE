@@ -18,6 +18,7 @@ const {
   CodiceSconto,
   Pacchetto,
   Utente,
+  Recensione,
 } = require('../models');
 const { STATI_ATTIVI } = require('../constants/prenotazioni.constants');
 
@@ -197,6 +198,19 @@ const trovaConfermateInArrivo = async (giorno) => {
   });
 };
 
+// Prenotazioni ancora nello stato indicato con la data (arrivo o partenza) già passata.
+const trovaFermePrimaDi = async (stato, campo, giorno) => {
+  return await Prenotazione.findAll({ where: { stato, [campo]: { [Op.lt]: giorno } } });
+};
+
+// Soggiorni conclusi partiti nel giorno indicato e non ancora recensiti.
+const trovaDaRecensire = async (giorno) => {
+  return await Prenotazione.findAll({
+    where: { stato: 'conclusa', data_partenza: giorno, '$recensione.id$': null },
+    include: [{ model: Recensione, as: 'recensione', attributes: [], required: false }],
+  });
+};
+
 const contaAttiveCliente = async (utenteId) => {
   return await Prenotazione.count({
     where: { utente_id: utenteId, stato: { [Op.in]: STATI_ATTIVI } },
@@ -275,6 +289,8 @@ module.exports = {
   trovaPartenze,
   trovaInCasa,
   trovaConfermateInArrivo,
+  trovaFermePrimaDi,
+  trovaDaRecensire,
   contaAttiveCliente,
   trovaSaldo,
   creaPrenotazione,

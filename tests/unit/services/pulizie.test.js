@@ -11,6 +11,8 @@ jest.mock('../../../src/repositories/pulizie.repository', () => ({
   trovaAperteAssegnate: jest.fn(),
   trovaUltimaFinita: jest.fn(),
   prendiSeLibera: jest.fn(),
+  trovaArretrate: jest.fn(),
+  eliminaAttivita: jest.fn(),
 }));
 jest.mock('../../../src/repositories/utenti.repository', () => ({ trovaStaffAttivo: jest.fn() }));
 jest.mock('../../../src/services/impostazioni.service', () => ({ leggi: jest.fn() }));
@@ -207,4 +209,26 @@ describe('rinvia', () => {
       codice: 'PULIZIA_ALTRUI',
     });
   });
+});
+
+test('le pulizie arretrate tornano in coda oggi, i doppioni si eliminano', async () => {
+  pulizieRepo.trovaArretrate.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+  pulizieRepo.aggiornaAttivita.mockImplementation((id) =>
+    id === 2
+      ? Promise.reject(
+          Object.assign(new Error('doppione'), { name: 'SequelizeUniqueConstraintError' }),
+        )
+      : Promise.resolve(),
+  );
+
+  expect(await pulizie.riportaArretrate(GIORNO)).toBe(2);
+  expect(pulizieRepo.aggiornaAttivita).toHaveBeenCalledWith(1, {
+    data_prevista: GIORNO,
+    stato: 'da_fare',
+    assegnata_a: null,
+    iniziata_il: null,
+    rinviata_il: null,
+  });
+  expect(pulizieRepo.eliminaAttivita).toHaveBeenCalledWith(2);
+  expect(pulizieRepo.eliminaAttivita).not.toHaveBeenCalledWith(1);
 });

@@ -62,7 +62,8 @@ const JOB = [
   {
     nome: 'pulizie-giornata',
     quando: '0 6 * * *', // alle 6:00
-    descrizione: 'Crea i riassetti del giorno e, se attivo, li assegna',
+    descrizione:
+      'Riporta le pulizie non finite, crea i riassetti del giorno e, se attivo, li assegna',
     esegui: () => pulizieService.preparaGiornata(),
   },
   {
@@ -76,6 +77,18 @@ const JOB = [
     quando: '0 10 * * *', // alle 10:00
     descrizione: 'Promemoria agli ospiti che arrivano domani',
     esegui: () => prenotazioniService.inviaPromemoriaCheckin(),
+  },
+  {
+    nome: 'prenotazioni-dimenticate',
+    quando: '0 13 * * *', // alle 13:00, dopo l'orario di check-out
+    descrizione: 'No-show per gli arrivi mancati, partenze concluse dei giorni passati',
+    esegui: () => prenotazioniService.chiudiDimenticate(),
+  },
+  {
+    nome: 'invito-recensione',
+    quando: '0 17 * * *', // alle 17:00
+    descrizione: 'Invita a recensire chi è partito ieri',
+    esegui: () => prenotazioniService.invitaARecensire(),
   },
   {
     nome: 'notifiche-vecchie',

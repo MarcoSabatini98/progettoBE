@@ -18,9 +18,10 @@ const tariffe = require('./tariffe.service');
 const disponibilita = require('./disponibilita.service');
 const ospitiService = require('./ospiti.service');
 const email = require('./email.service');
+const notifiche = require('./notifiche.service');
 const { totaleServizio } = require('./helpers/calcolo-prezzo');
 const { STATI_ATTIVI } = require('../constants/prenotazioni.constants');
-const { RUOLI } = require('../constants/ruoli.constants');
+const { RUOLI, PERMESSI } = require('../constants/ruoli.constants');
 const { nonTrovato, conflitto, vietato, richiestaNonValida } = require('../utils/errori');
 const { pagina, risultato } = require('../utils/paginazione');
 const { centesimi, euro, percentualeDi, formatoEuro } = require('../utils/denaro');
@@ -792,6 +793,58 @@ async function inviaPromemoriaCheckin() {
   return inArrivo.length;
 }
 
+const CONTESTO_JOB = { utenteId: null, ip: 'job' };
+
+/**
+ * Chiude quello che lo staff non ha registrato nei giorni passati: arrivi mai
+ * avvenuti → no-show (la camera torna libera); partenze → concluse (pulizia e
+ * punti dal trigger). Con saldo aperto la partenza resta alla reception.
+ * ponytail: niente tolleranza per chi arriva dopo mezzanotte, il job gira a metà giornata.
+ */
+async function chiudiDimenticate() {
+  const giorno = oggi();
+  const mancati = await prenotazioniRepo.trovaFermePrimaDi('confermata', 'data_arrivo', giorno);
+  for (const prenotazione of mancati) {
+    await noShow(prenotazione.id, CONTESTO_JOB);
+  }
+
+  const partite = await prenotazioniRepo.trovaFermePrimaDi('in_soggiorno', 'data_partenza', giorno);
+  const conSaldo = [];
+  for (const prenotazione of partite) {
+    try {
+      await checkOut(prenotazione.id, {}, CONTESTO_JOB);
+    } catch (errore) {
+      if (errore.codice !== 'SALDO_APERTO') throw errore;
+      conSaldo.push(prenotazione.codice);
+    }
+  }
+  if (conSaldo.length > 0) {
+    await notifiche.aChiPuo(PERMESSI.PRENOTAZIONI_GESTISCI, {
+      tipo: 'sistema',
+      priorita: 'avviso',
+      titolo: `Partenze da chiudere: ${conSaldo.length} con saldo aperto`,
+      testo: conSaldo.join(', '),
+      link: '/staff/prenotazioni',
+    });
+  }
+  return {
+    no_show: mancati.length,
+    concluse: partite.length - conSaldo.length,
+    saldo_aperto: conSaldo.length,
+  };
+}
+
+/** Il giorno dopo la partenza, invito a lasciare una recensione a chi non l'ha scritta. */
+async function invitaARecensire() {
+  const partiti = await prenotazioniRepo.trovaDaRecensire(aggiungiGiorni(oggi(), -1));
+  for (const prenotazione of partiti) {
+    await notifica(prenotazione.id, 'invito_recensione', {
+      link: `${config.urlFrontend}/prenotazioni/${prenotazione.codice}`,
+    });
+  }
+  return partiti.length;
+}
+
 module.exports = {
   dettaglio,
   mie,
@@ -816,4 +869,6 @@ module.exports = {
   notifica,
   scadiInAttesa,
   inviaPromemoriaCheckin,
+  chiudiDimenticate,
+  invitaARecensire,
 };
