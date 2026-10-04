@@ -8,6 +8,7 @@
 const { sequelize } = require('../models');
 const tariffeRepo = require('../repositories/tariffe.repository');
 const camereRepo = require('../repositories/camere.repository');
+const contenuti = require('./contenuti.service');
 const fedeltaService = require('./fedelta.service');
 const { calcola, contaTassabili } = require('./helpers/calcolo-prezzo');
 const { nonTrovato, richiestaNonValida, nonElaborabile, conflitto } = require('../utils/errori');
@@ -467,6 +468,7 @@ async function aggiornaPromozione(id, dati) {
 async function eliminaPromozione(id) {
   await dettaglioPromozione(id);
   await tariffeRepo.eliminaPromozione(id);
+  await contenuti.eliminaContenutiDi('promozione', id);
 }
 
 // ─────────────────────────────────────
@@ -563,6 +565,7 @@ async function aggiornaPacchetto(id, dati) {
 async function eliminaPacchetto(id) {
   await dettaglioPacchetto(id);
   await tariffeRepo.eliminaPacchetto(id);
+  await contenuti.eliminaContenutiDi('pacchetto', id);
 }
 
 // ─────────────────────────────────────

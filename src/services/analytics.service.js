@@ -8,7 +8,7 @@
 
 const analyticsRepo = require('../repositories/analytics.repository');
 const camereRepo = require('../repositories/camere.repository');
-const contenutiRepo = require('../repositories/contenuti.repository');
+const contenuti = require('./contenuti.service');
 const impostazioni = require('./impostazioni.service');
 const { suggerimentoPrezzo } = require('./helpers/suggerimento-prezzo');
 const { documentoReport } = require('./helpers/report-pdf');
@@ -256,7 +256,7 @@ async function suggerimentiPrezzo(query = {}) {
   const giorni = (await analyticsRepo.trovaOccupazioneGiornaliera(dal, al)).map(
     giornoDiOccupazione,
   );
-  const eventi = await contenutiRepo.trovaEventi({ dal, al });
+  const eventi = await contenuti.eventiNelPeriodo(dal, al);
 
   return giorni.map(({ giorno, occupazione_percentuale }) => {
     const suggerimento = suggerimentoPrezzo({

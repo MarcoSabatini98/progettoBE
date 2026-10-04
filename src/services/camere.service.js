@@ -5,6 +5,7 @@
 
 const { sequelize } = require('../models');
 const camereRepo = require('../repositories/camere.repository');
+const contenuti = require('./contenuti.service');
 const { nonTrovato, conflitto, richiestaNonValida } = require('../utils/errori');
 const { applicaTraduzioni } = require('../utils/traduzioni');
 const { tokenCasuale } = require('../utils/sicurezza');
@@ -139,6 +140,7 @@ async function eliminaTipologia(id) {
     );
   }
   await camereRepo.eliminaTipologia(id);
+  await contenuti.eliminaContenutiDi('tipologia_camera', id);
 }
 
 // ─────────────────────────────────────
@@ -222,6 +224,8 @@ async function eliminaCamera(id) {
     );
   }
   await camereRepo.eliminaCamera(id);
+  // La camera resta solo per lo storico delle prenotazioni e non si ripristina: foto e traduzioni non servono più.
+  await contenuti.eliminaContenutiDi('camera', id);
 }
 
 /** Nuovo token del feed iCal, se il vecchio link è finito in mani sbagliate. */
@@ -287,6 +291,7 @@ async function aggiornaServizio(id, dati) {
 async function eliminaServizio(id) {
   await dettaglioServizio(id);
   await camereRepo.eliminaServizio(id);
+  await contenuti.eliminaContenutiDi('servizio', id);
 }
 
 module.exports = {
