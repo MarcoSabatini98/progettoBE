@@ -1936,7 +1936,7 @@ INSERT INTO impostazioni (chiave, valore, tipo, gruppo, descrizione, pubblica) V
   -- localizzazione
   ('fuso_orario',                 'Europe/Rome', 'testo',  'localizzazione','Fuso orario della struttura', TRUE),
   ('lingua_predefinita',          'it',        'testo',    'localizzazione','Lingua predefinita del sito', TRUE),
-  ('lingue_attive',               '["it","en"]', 'json',   'localizzazione','Lingue disponibili sul sito', TRUE),
+  ('lingue_attive',               '["it","en","fr","de","es"]', 'json', 'localizzazione','Lingue disponibili sul sito', TRUE),
   -- chat
   ('chat_conservazione_giorni',   '365',       'numero',   'chat',          'Giorni dopo cui le conversazioni chiuse vengono eliminate', FALSE),
   ('chat_riepilogo_email_minuti', '60',        'numero',   'chat',          'Intervallo minimo tra due riepiloghi email dei messaggi non letti', FALSE);
