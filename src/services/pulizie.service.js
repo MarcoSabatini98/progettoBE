@@ -62,11 +62,13 @@ async function avvisaAddetto(attivita) {
   if (!attivita.assegnata_a) {
     return;
   }
+  const numeroCamera = attivita.camera?.numero ?? attivita.camera_id;
   await notifiche.invia([attivita.assegnata_a], {
     tipo: 'pulizia',
     priorita: attivita.priorita === 'urgente' ? 'avviso' : 'info',
-    titolo: `Pulizia assegnata: camera ${attivita.camera?.numero ?? attivita.camera_id}`,
-    testo: `${attivita.tipo} del ${attivita.data_prevista}`,
+    codice: 'pulizia_assegnata',
+    parametri: { camera: numeroCamera, data: attivita.data_prevista },
+    titolo: `Pulizia assegnata: camera ${numeroCamera} per il ${attivita.data_prevista}`,
     link: `/staff/pulizie/${attivita.id}`,
   });
 }
@@ -287,6 +289,8 @@ async function avanza(id, dati, contesto) {
       PERMESSI.PULIZIE_GESTISCI,
       {
         tipo: 'pulizia',
+        codice: 'camera_da_ispezionare',
+        parametri: { camera: aggiornata.camera.numero },
         titolo: `Camera ${aggiornata.camera.numero} da ispezionare`,
         link: `/staff/pulizie/${id}`,
       },

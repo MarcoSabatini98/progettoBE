@@ -606,6 +606,8 @@ async function avvisaRimborsiDovuti() {
   const destinatari = await notifiche.aChiPuo(PERMESSI.PAGAMENTI_REGISTRA, {
     tipo: 'pagamento',
     priorita: 'avviso',
+    codice: 'rimborsi_da_fare',
+    parametri: { totale: daRimborsare.length },
     titolo: `Rimborsi da fare: ${daRimborsare.length}`,
     testo: daRimborsare.map((saldo) => saldo.codice).join(', '),
     link:

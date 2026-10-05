@@ -620,8 +620,9 @@ async function avvisaTassaInScadenza() {
   const avvisati = await notifiche.aChiPuo(PERMESSI.TARIFFE_GESTISCI, {
     tipo: 'sistema',
     priorita: 'avviso',
-    titolo: `Tassa di soggiorno: "${tassa.nome}" finisce il ${dataItaliana(tassa.valida_al)}`,
-    testo: "Dopo non ce n'è un'altra: i soggiorni successivi la calcolerebbero a zero",
+    codice: 'tassa_in_scadenza',
+    parametri: { nome: tassa.nome, data: tassa.valida_al },
+    titolo: `Tassa di soggiorno: "${tassa.nome}" finisce il ${dataItaliana(tassa.valida_al)} e non ce n'è un'altra`,
     link: '/staff/tariffe',
   });
   return { avvisati: avvisati.length };

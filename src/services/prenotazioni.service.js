@@ -822,6 +822,8 @@ async function chiudiDimenticate() {
     await notifiche.aChiPuo(PERMESSI.PRENOTAZIONI_GESTISCI, {
       tipo: 'sistema',
       priorita: 'avviso',
+      codice: 'partenze_saldo_aperto',
+      parametri: { totale: conSaldo.length },
       titolo: `Partenze da chiudere: ${conSaldo.length} con saldo aperto`,
       testo: conSaldo.join(', '),
       link: '/staff/prenotazioni',

@@ -25,6 +25,19 @@ const Notifica = sequelize.define(
       allowNull: false,
       defaultValue: 'info',
     },
+    // Il gestionale traduce il titolo da codice e parametri; titolo resta in italiano.
+    codice: {
+      type: DataTypes.STRING(60),
+      allowNull: false,
+    },
+    parametri: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      get() {
+        const valore = this.getDataValue('parametri');
+        return typeof valore === 'string' ? JSON.parse(valore) : valore;
+      },
+    },
     titolo: {
       type: DataTypes.STRING(150),
       allowNull: false,

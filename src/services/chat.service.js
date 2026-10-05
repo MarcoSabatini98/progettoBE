@@ -417,6 +417,7 @@ async function apriAssistenza(chi, dati) {
   if (nuova) {
     await notifiche.aChiPuo(PERMESSI.CHAT_ASSISTENZA, {
       tipo: 'chat',
+      codice: 'assistenza_richiesta',
       titolo: 'Nuova richiesta di assistenza',
       testo: String(dati.testo ?? '').slice(0, 120),
       link: `/staff/chat/${conversazione.uuid}`,
@@ -442,6 +443,7 @@ async function assegna(uuid, chi, utenteId) {
   if (utenteId && utenteId !== chi.utenteId) {
     await notifiche.invia([utenteId], {
       tipo: 'chat',
+      codice: 'assistenza_passata',
       titolo: 'Ti è stata passata una conversazione di assistenza',
       link: `/staff/chat/${uuid}`,
     });
