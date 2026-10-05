@@ -2,6 +2,19 @@
 
 const TIPI_IMPOSTAZIONE = Object.freeze(['testo', 'numero', 'booleano', 'json']);
 
+// Tema del sito: sistema segue il dispositivo. Ognuno può cambiarlo sul suo.
+const TEMI_SITO = Object.freeze(['sistema', 'chiaro', 'scuro']);
+
+const ORARIO = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// Formato richiesto da alcune impostazioni di testo; le altre accettano qualunque testo.
+const FORMATI_IMPOSTAZIONI = Object.freeze({
+  aspetto_colore: /^#[0-9a-f]{6}$/i,
+  aspetto_tema: new RegExp(`^(${TEMI_SITO.join('|')})$`),
+  orario_checkin: ORARIO,
+  orario_checkout: ORARIO,
+});
+
 const TIPI_DOCUMENTO_LEGALE = Object.freeze(['privacy', 'termini', 'cookie']);
 
 const TIPI_NOTIFICA = Object.freeze([
@@ -44,6 +57,7 @@ const CAMPI_TRADUCIBILI = Object.freeze({
 
 module.exports = {
   TIPI_IMPOSTAZIONE,
+  FORMATI_IMPOSTAZIONI,
   TIPI_DOCUMENTO_LEGALE,
   TIPI_NOTIFICA,
   PRIORITA_NOTIFICA,

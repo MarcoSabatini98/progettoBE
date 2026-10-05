@@ -7,6 +7,8 @@
 
 const { sequelize } = require('../models');
 const impostazioniRepo = require('../repositories/impostazioni.repository');
+const contenutiRepo = require('../repositories/contenuti.repository');
+const { FORMATI_IMPOSTAZIONI } = require('../constants/sistema.constants');
 const { richiestaNonValida } = require('../utils/errori');
 
 let cache = null;
@@ -50,7 +52,11 @@ function serializza(chiave, valore, tipo) {
   if (tipo === 'json') {
     return typeof valore === 'string' ? valore : JSON.stringify(valore);
   }
-  return String(valore);
+  const testo = String(valore);
+  if (FORMATI_IMPOSTAZIONI[chiave] && !FORMATI_IMPOSTAZIONI[chiave].test(testo)) {
+    throw errore;
+  }
+  return testo;
 }
 
 async function carica() {
@@ -91,9 +97,13 @@ async function elenco() {
   return [...(await carica()).values()];
 }
 
-/** Sito pubblico: solo le impostazioni marcate come pubbliche, { chiave: valore }. */
+/**
+ * Sito pubblico: solo le impostazioni marcate come pubbliche, { chiave: valore },
+ * più aspetto_logo: il percorso della prima immagine del logo, o null.
+ */
 async function pubbliche() {
-  const risultato = {};
+  const [logo] = await contenutiRepo.trovaMedia('logo');
+  const risultato = { aspetto_logo: logo?.percorso ?? null };
   for (const riga of await elenco()) {
     if (riga.pubblica) {
       risultato[riga.chiave] = riga.valore;
