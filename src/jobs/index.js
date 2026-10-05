@@ -25,6 +25,7 @@ const alloggiatiService = require('../services/alloggiati.service');
 const notificheService = require('../services/notifiche.service');
 const authService = require('../services/auth.service');
 const tariffeService = require('../services/tariffe.service');
+const fattureService = require('../services/fatture.service');
 
 // quando: minuto ora giorno mese giorno-settimana.
 // I job con una data (promemoria, pulizie) girano di giorno: oggi() è in UTC
@@ -53,6 +54,12 @@ const JOB = [
     quando: '0 9 * * *', // alle 9:00
     descrizione: 'Avvisa lo staff delle prenotazioni incassate oltre il dovuto da rimborsare',
     esegui: () => pagamentiService.avvisaRimborsiDovuti(),
+  },
+  {
+    nome: 'fatture-sdi',
+    quando: '30 9 * * *', // alle 9:30
+    descrizione: 'Avvisa lo staff delle fatture emesse ma non ancora inviate allo SDI o scartate',
+    esegui: () => fattureService.avvisaFermeAlloSdi(),
   },
   {
     nome: 'riepiloghi-chat',

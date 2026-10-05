@@ -176,6 +176,18 @@ const eliminaFattura = async (id, transaction) => {
   return await Fattura.destroy({ where: { id }, transaction });
 };
 
+// Emesse ma ferme: da trasmettere allo SDI o scartate (da correggere e riemettere).
+const trovaFermeAlloSdi = async () => {
+  return await Fattura.findAll({
+    where: { stato_sdi: ['da_inviare', 'scartata'] },
+    attributes: ['id', 'tipo_documento', 'anno', 'sezionale', 'numero', 'stato_sdi'],
+    order: [
+      ['anno', 'ASC'],
+      ['numero', 'ASC'],
+    ],
+  });
+};
+
 const eliminaBozzeDiPrenotazione = async (prenotazioneId, transaction) => {
   return await Fattura.destroy({
     where: { prenotazione_id: prenotazioneId, stato_sdi: 'bozza' },
@@ -196,4 +208,5 @@ module.exports = {
   sostituisciRighe,
   eliminaFattura,
   eliminaBozzeDiPrenotazione,
+  trovaFermeAlloSdi,
 };

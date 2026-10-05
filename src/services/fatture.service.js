@@ -15,9 +15,11 @@ const pagamentiRepo = require('../repositories/pagamenti.repository');
 const prenotazioniRepo = require('../repositories/prenotazioni.repository');
 const impostazioni = require('./impostazioni.service');
 const email = require('./email.service');
+const notifiche = require('./notifiche.service');
 const fatturaPa = require('./helpers/fattura-pa');
 const { documentoFattura } = require('./helpers/fattura-pdf');
 const { STATI_SDI } = require('../constants/pagamenti.constants');
+const { PERMESSI } = require('../constants/ruoli.constants');
 const { CARTELLE_UPLOAD } = require('../constants/sistema.constants');
 const {
   nonTrovato,
@@ -624,6 +626,31 @@ async function rigeneraFile(id, contesto) {
   return await fatturaOppure404(id);
 }
 
+/**
+ * Job: avvisa chi gestisce le fatture di quelle emesse e ferme (da inviare allo SDI
+ * entro 12 giorni, o scartate da riemettere entro 5). Ogni mattina finché restano.
+ */
+async function avvisaFermeAlloSdi() {
+  const ferme = await fattureRepo.trovaFermeAlloSdi();
+  if (ferme.length === 0) return { avvisati: 0 };
+
+  const numeri = (stato) =>
+    ferme.filter((fattura) => fattura.stato_sdi === stato).map(fatturaPa.numeroCompleto);
+  const gruppi = [
+    ['Da inviare', numeri('da_inviare')],
+    ['Scartate', numeri('scartata')],
+  ].filter(([, voci]) => voci.length > 0);
+
+  const destinatari = await notifiche.aChiPuo(PERMESSI.FATTURE_GESTISCI, {
+    tipo: 'pagamento',
+    priorita: 'avviso',
+    titolo: `Fatture ferme allo SDI: ${ferme.length}`,
+    testo: gruppi.map(([nome, voci]) => `${nome}: ${voci.join(', ')}`).join(' · '),
+    link: ferme.length === 1 ? `/staff/fatture/${ferme[0].id}` : '/staff/fatture',
+  });
+  return { avvisati: destinatari.length };
+}
+
 /** Area cliente: fatture emesse per le sue prenotazioni. */
 async function fattureCliente(utenteId) {
   return await fattureRepo.trovaFattureCliente(utenteId);
@@ -642,4 +669,5 @@ module.exports = {
   notaDiCredito,
   aggiornaSdi,
   rigeneraFile,
+  avvisaFermeAlloSdi,
 };
