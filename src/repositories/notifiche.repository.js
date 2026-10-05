@@ -51,6 +51,19 @@ const trovaIdClienti = async () => {
   return utenti.map((utente) => utente.id);
 };
 
+// Clienti che hanno chiesto le offerte via email, con l'indirizzo verificato.
+const trovaClientiMarketing = async () => {
+  return await Utente.findAll({
+    where: {
+      ruolo: RUOLI.CLIENTE,
+      attivo: true,
+      email_marketing: true,
+      email_verificata_il: { [Op.ne]: null },
+    },
+    attributes: ['id', 'uuid', 'nome', 'email', 'lingua'],
+  });
+};
+
 // ─────────────────────────────────────
 // Scrittura
 // ─────────────────────────────────────
@@ -91,6 +104,7 @@ module.exports = {
   trovaNotificaDiUtente,
   trovaIdUtentiConPermesso,
   trovaIdClienti,
+  trovaClientiMarketing,
   creaNotifiche,
   segnaLetta,
   segnaTutteLette,

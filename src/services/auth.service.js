@@ -152,6 +152,7 @@ async function registra(dati, meta) {
         cognome: dati.cognome.trim(),
         telefono: dati.telefono ?? null,
         lingua: dati.lingua ?? 'it',
+        email_marketing: Boolean(dati.consensi.marketing),
         ultimo_accesso_il: new Date(),
       },
       transaction,
@@ -463,6 +464,53 @@ async function verificaChat(token) {
   return { utenteId: payload.id, ruolo: payload.ruolo };
 }
 
+// ─────────────────────────────────────
+// Offerte via email
+// ─────────────────────────────────────
+
+/** Firma del link di disiscrizione: non scade e vale solo per quell'utente. */
+function firmaDisiscrizione(uuidUtente) {
+  return crypto
+    .createHmac('sha256', config.jwt.segretoAccess)
+    .update(`disiscrizione:${uuidUtente}`)
+    .digest('base64url');
+}
+
+/** Link in fondo alle email delle offerte: disiscrive senza dover accedere. */
+function linkDisiscrizione(utente) {
+  const token = `${utente.uuid}.${firmaDisiscrizione(utente.uuid)}`;
+  return `${config.urlFrontend}/disiscrizione?token=${token}`;
+}
+
+/** Cambia il consenso alle offerte e ne lascia la prova nel registro. */
+async function impostaMarketing(utente, accettato, meta) {
+  await sequelize.transaction(async (transaction) => {
+    await utentiRepo.aggiornaUtente(utente.id, { email_marketing: accettato }, transaction);
+    await registraConsensi(
+      utente.id,
+      utente.ospite_id,
+      { marketing: accettato },
+      meta,
+      transaction,
+    );
+  });
+}
+
+/** Revoca dal link dell'email. Ripetuta non fa nulla. */
+async function disiscrivi(token, meta) {
+  const [uuidUtente, firma = ''] = token.split('.');
+  const attesa = Buffer.from(firmaDisiscrizione(uuidUtente));
+  const ricevuta = Buffer.from(firma);
+  const valida = ricevuta.length === attesa.length && crypto.timingSafeEqual(ricevuta, attesa);
+  const utente = valida ? await utentiRepo.trovaUtentePerUuid(uuidUtente) : null;
+  if (!utente) {
+    throw richiestaNonValida('LINK_NON_VALIDO', 'Link di disiscrizione non valido');
+  }
+  if (utente.email_marketing) {
+    await impostaMarketing(utente, false, meta);
+  }
+}
+
 /** Job: elimina i token scaduti da tempo. */
 async function eliminaTokenScaduti() {
   return await authRepo.eliminaTokenScaduti();
@@ -486,5 +534,8 @@ module.exports = {
   creaVisitatore,
   verificaVisitatore,
   verificaChat,
+  linkDisiscrizione,
+  impostaMarketing,
+  disiscrivi,
   eliminaTokenScaduti,
 };

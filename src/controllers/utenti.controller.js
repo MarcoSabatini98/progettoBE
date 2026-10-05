@@ -22,7 +22,11 @@ const aggiornaDatiPersonali = async (req, res) => {
 };
 
 const aggiornaPreferenzeEmail = async (req, res) => {
-  const utente = await utentiService.aggiornaPreferenzeEmail(req.contesto.utenteId, req.body);
+  const utente = await utentiService.aggiornaPreferenzeEmail(
+    req.contesto.utenteId,
+    req.body,
+    req.contesto,
+  );
   return inviaSuccesso(res, 200, utente);
 };
 

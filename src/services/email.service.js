@@ -22,7 +22,7 @@ function ottieniTrasporto() {
 
 const escape = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-/** Testi dei modelli: (dati) => { oggetto, righe[], link? } per lingua. */
+/** Testi dei modelli: (dati) => { oggetto, righe[], link?, piede? } per lingua. */
 const MODELLI = {
   verifica_email: {
     it: (d) => ({
@@ -208,6 +208,30 @@ const MODELLI = {
       ],
     }),
   },
+  promozione: {
+    it: (d) => ({
+      oggetto: `Nuova offerta: ${d.offerta}`,
+      righe: [
+        `Ciao ${d.nome},`,
+        `abbiamo una nuova offerta per i soggiorni dal ${d.dal} al ${d.al}: ${d.offerta}.`,
+        d.descrizione,
+        'Tutti i dettagli dal link qui sotto.',
+      ],
+      link: d.link,
+      piede: 'Non vuoi più ricevere offerte? Disiscriviti:',
+    }),
+    en: (d) => ({
+      oggetto: `New offer: ${d.offerta}`,
+      righe: [
+        `Hi ${d.nome},`,
+        `we have a new offer for stays from ${d.dal} to ${d.al}: ${d.offerta}.`,
+        d.descrizione,
+        'All the details at the link below.',
+      ],
+      link: d.link,
+      piede: 'No longer want our offers? Unsubscribe:',
+    }),
+  },
   chat_non_letti: {
     it: (d) => ({
       oggetto: 'Hai nuovi messaggi',
@@ -228,13 +252,22 @@ const MODELLI = {
 function componi(modello, lingua, dati, nomeStruttura) {
   const versioni = MODELLI[modello];
   if (!versioni) throw new Error(`Modello email inesistente: ${modello}`);
-  const { oggetto, righe, link } = (versioni[lingua] ?? versioni.it)(dati);
+  const { oggetto, righe, link, piede } = (versioni[lingua] ?? versioni.it)(dati);
   const paragrafi = righe.filter(Boolean);
-  const testo = [...paragrafi, link ?? '', '', nomeStruttura].join('\n');
+  // Il piede accompagna il link di disiscrizione delle email promozionali.
+  const disiscrizione = piede && dati.disiscrizione;
+  const testo = [
+    ...paragrafi,
+    link ?? '',
+    '',
+    nomeStruttura,
+    disiscrizione ? `\n${piede} ${dati.disiscrizione}` : '',
+  ].join('\n');
   const html = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#222">
 ${paragrafi.map((r) => `<p>${escape(r)}</p>`).join('\n')}
 ${link ? `<p><a href="${escape(link)}">${escape(link)}</a></p>` : ''}
-<p style="color:#777">${escape(nomeStruttura)}</p></div>`;
+<p style="color:#777">${escape(nomeStruttura)}</p>
+${disiscrizione ? `<p style="color:#777;font-size:12px">${escape(piede)} <a href="${escape(dati.disiscrizione)}">${escape(dati.disiscrizione)}</a></p>` : ''}</div>`;
   return { oggetto: nomeStruttura ? `${oggetto} – ${nomeStruttura}` : oggetto, testo, html };
 }
 
@@ -259,6 +292,8 @@ async function invia({ a, modello, lingua = 'it', dati, allegati }) {
       text: testo,
       html,
       attachments: allegati,
+      // I programmi di posta mostrano il loro pulsante "Annulla iscrizione".
+      list: dati?.disiscrizione ? { unsubscribe: dati.disiscrizione } : undefined,
     });
     return true;
   } catch (err) {

@@ -111,13 +111,22 @@ async function aggiornaDatiPersonali(utenteId, dati) {
 }
 
 /**
- * Email non indispensabili (promemoria, riepiloghi chat). Quelle di servizio
- * (conferme, reset password) partono sempre.
+ * Email non indispensabili (promemoria, riepiloghi chat) e offerte. Quelle di
+ * servizio (conferme, reset password) partono sempre.
  */
-async function aggiornaPreferenzeEmail(utenteId, { notifiche_email: notificheEmail }) {
-  await utenteOppure404(utenteId);
-  await utentiRepo.aggiornaUtente(utenteId, { notifiche_email: Boolean(notificheEmail) });
-  return { notifiche_email: Boolean(notificheEmail) };
+async function aggiornaPreferenzeEmail(utenteId, dati, meta) {
+  const utente = await utenteOppure404(utenteId);
+  if (dati.notifiche_email !== undefined) {
+    await utentiRepo.aggiornaUtente(utenteId, { notifiche_email: dati.notifiche_email });
+  }
+  if (dati.email_marketing !== undefined && dati.email_marketing !== utente.email_marketing) {
+    await auth.impostaMarketing(utente, dati.email_marketing, meta);
+  }
+  const aggiornato = await utenteOppure404(utenteId);
+  return {
+    notifiche_email: aggiornato.notifiche_email,
+    email_marketing: aggiornato.email_marketing,
+  };
 }
 
 async function anagraficaDelCliente(utenteId) {

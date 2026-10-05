@@ -14,6 +14,7 @@ const {
   schemaReimpostaPassword,
   schemaCambiaPassword,
   schemaEliminaAccount,
+  schemaDisiscrizione,
 } = require('../validators/auth.validator');
 
 // ─────────────────────────────────────
@@ -74,6 +75,14 @@ router.delete(
   richiediAccesso,
   valida({ body: schemaEliminaAccount }),
   controller.eliminaAccount,
+);
+
+// Link "non voglio più offerte" delle email: vale senza accesso.
+router.post(
+  '/disiscrizione',
+  limiteAccesso,
+  valida({ body: schemaDisiscrizione }),
+  controller.disiscrivi,
 );
 
 module.exports = router;
