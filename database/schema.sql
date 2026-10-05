@@ -1941,4 +1941,7 @@ INSERT INTO impostazioni (chiave, valore, tipo, gruppo, descrizione, pubblica) V
   ('lingue_attive',               '["it","en","fr","de","es"]', 'json', 'localizzazione','Lingue disponibili sul sito', TRUE),
   -- chat
   ('chat_conservazione_giorni',   '365',       'numero',   'chat',          'Giorni dopo cui le conversazioni chiuse vengono eliminate', FALSE),
-  ('chat_riepilogo_email_minuti', '60',        'numero',   'chat',          'Intervallo minimo tra due riepiloghi email dei messaggi non letti', FALSE);
+  ('chat_riepilogo_email_minuti', '60',        'numero',   'chat',          'Intervallo minimo tra due riepiloghi email dei messaggi non letti', FALSE),
+  -- aspetto (il logo è la prima immagine dei media con entita 'logo')
+  ('aspetto_colore',              '#5e6b3a',   'testo',    'aspetto',       'Colore principale del sito (esadecimale)', TRUE),
+  ('aspetto_tema',                'sistema',   'testo',    'aspetto',       'Tema predefinito: sistema, chiaro o scuro (ognuno può cambiarlo sul suo dispositivo)', TRUE);
