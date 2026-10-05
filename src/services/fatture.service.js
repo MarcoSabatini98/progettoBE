@@ -472,10 +472,15 @@ async function generaFile(id, datiCedente, transaction) {
   );
 }
 
-/** PDF al titolare della prenotazione. Un errore finisce nel log, non blocca. */
+/**
+ * PDF al titolare della prenotazione e, se ha un account, avviso in campanella.
+ * Un errore finisce nel log, non blocca.
+ */
 async function inviaAlCliente(id) {
   try {
     const fattura = await fattureRepo.trovaFatturaConTitolare(id);
+    const numero = fatturaPa.numeroCompleto(fattura);
+    await notifiche.alCliente(fattura.prenotazione, 'fattura_emessa', { numero });
     const titolare = fattura.prenotazione?.titolare;
     if (!titolare?.email || !fattura.percorso_pdf) {
       return;
@@ -484,7 +489,7 @@ async function inviaAlCliente(id) {
       a: titolare.email,
       modello: 'fattura_emessa',
       lingua: titolare.lingua,
-      dati: { nome: titolare.nome, numero: fatturaPa.numeroCompleto(fattura) },
+      dati: { nome: titolare.nome, numero },
       allegati: [
         {
           filename: `fattura-${fattura.anno}-${fattura.numero}.pdf`,

@@ -169,10 +169,14 @@ async function giornata(giorno = oggi()) {
 // Email al titolare
 // ─────────────────────────────────────
 
-/** Email al titolare. Non blocca mai l'operazione: un errore finisce nel log. */
+/**
+ * Email al titolare e, se ha un account, notifica nella sua campanella.
+ * Non blocca mai l'operazione: un errore finisce nel log.
+ */
 async function notifica(id, modello, extra = {}) {
   try {
     const prenotazione = await prenotazioniRepo.trovaDettaglio(id);
+    await notifiche.alCliente(prenotazione, modello);
     const cliente = prenotazione?.titolare;
     if (!cliente?.email) {
       return;

@@ -24,6 +24,7 @@ const TIPI_NOTIFICA = Object.freeze([
   'manutenzione',
   'chat',
   'recensione',
+  'promozione',
   'sistema',
 ]);
 
