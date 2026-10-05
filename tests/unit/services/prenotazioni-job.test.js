@@ -13,7 +13,10 @@ jest.mock('../../../src/repositories/prenotazioni.repository', () => ({
   aggiornaPrenotazione: jest.fn(),
   trovaDettaglio: jest.fn(),
 }));
-jest.mock('../../../src/services/notifiche.service', () => ({ aChiPuo: jest.fn() }));
+jest.mock('../../../src/services/notifiche.service', () => ({
+  aChiPuo: jest.fn(),
+  alCliente: jest.fn(),
+}));
 jest.mock('../../../src/services/email.service', () => ({ invia: jest.fn() }));
 jest.mock('../../../src/services/impostazioni.service', () => ({
   leggi: jest.fn(),
@@ -89,12 +92,15 @@ test('senza nulla da chiudere nessun avviso', async () => {
 
 test('invita a recensire chi è partito ieri, col link alla prenotazione', async () => {
   prenotazioniRepo.trovaDaRecensire.mockResolvedValue([prenotazione(4, 'conclusa')]);
-  prenotazioniRepo.trovaDettaglio.mockResolvedValue({
+  const dettaglio = {
     codice: 'BB-4',
+    utente_id: 9,
     titolare: { email: 'anna@example.com', nome: 'Anna', lingua: 'en' },
-  });
+  };
+  prenotazioniRepo.trovaDettaglio.mockResolvedValue(dettaglio);
 
   expect(await prenotazioni.invitaARecensire()).toBe(1);
+  expect(notifiche.alCliente).toHaveBeenCalledWith(dettaglio, 'invito_recensione');
   expect(email.invia).toHaveBeenCalledWith(
     expect.objectContaining({
       a: 'anna@example.com',

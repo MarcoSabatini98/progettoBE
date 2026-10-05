@@ -453,16 +453,23 @@ async function creaPromozione(dati, contesto) {
     ...datiPromozione(dati),
     creato_da: contesto.utenteId,
   });
-  return await dettaglioPromozione(promozione.id);
+  const creata = await dettaglioPromozione(promozione.id);
+  if (creata.attiva) {
+    await notifiche.promozioneAiClienti(creata);
+  }
+  return creata;
 }
 
+/** Quando una promozione diventa attiva i clienti registrati la trovano nella campanella. */
 async function aggiornaPromozione(id, dati) {
   controllaDatePeriodo(dati.soggiorno_dal, dati.soggiorno_al);
-  const promozione = await tariffeRepo.aggiornaPromozione(id, datiPromozione(dati));
-  if (!promozione) {
-    throw nonTrovato('PROMOZIONE_NON_TROVATA', 'Promozione non trovata');
+  const prima = await dettaglioPromozione(id);
+  await tariffeRepo.aggiornaPromozione(id, datiPromozione(dati));
+  const dopo = await dettaglioPromozione(id);
+  if (dopo.attiva && !prima.attiva) {
+    await notifiche.promozioneAiClienti(dopo);
   }
-  return await dettaglioPromozione(id);
+  return dopo;
 }
 
 async function eliminaPromozione(id) {

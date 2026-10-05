@@ -64,6 +64,98 @@ async function aChiPuo(permesso, dati, esclusoId) {
   return await invia(destinatari, dati);
 }
 
+// ─────────────────────────────────────
+// Notifiche ai clienti
+// ─────────────────────────────────────
+
+// Pagine dell'area personale aperte al clic (percorsi del sito).
+const AREA_PERSONALE = '/area-personale';
+const paginaPrenotazione = (prenotazione) => `${AREA_PERSONALE}/prenotazioni/${prenotazione.id}`;
+
+// Per codice: tipo, priorità, titolo in italiano e pagina da aprire.
+const AVVISI_CLIENTE = Object.freeze({
+  prenotazione_ricevuta: {
+    tipo: 'prenotazione',
+    titolo: (p) => `Prenotazione ${p.codice} ricevuta`,
+  },
+  prenotazione_confermata: {
+    tipo: 'prenotazione',
+    priorita: 'successo',
+    titolo: (p) => `Prenotazione ${p.codice} confermata`,
+  },
+  prenotazione_cancellata: {
+    tipo: 'prenotazione',
+    priorita: 'avviso',
+    titolo: (p) => `Prenotazione ${p.codice} cancellata`,
+  },
+  promemoria_checkin: {
+    tipo: 'prenotazione',
+    titolo: (p) => `Arrivo il ${p.data}: fai il check-in online`,
+  },
+  invito_recensione: {
+    tipo: 'recensione',
+    titolo: (p) => `Com'è andato il soggiorno ${p.codice}? Lascia una recensione`,
+  },
+  link_pagamento: {
+    tipo: 'pagamento',
+    priorita: 'avviso',
+    titolo: (p) => `Pagamento da completare per la prenotazione ${p.codice}`,
+  },
+  pagamento_ricevuto: {
+    tipo: 'pagamento',
+    priorita: 'successo',
+    titolo: (p) => `Pagamento di ${p.importo} ricevuto per ${p.codice}`,
+  },
+  rimborso_eseguito: {
+    tipo: 'pagamento',
+    titolo: (p) => `Rimborso di ${p.importo} eseguito per ${p.codice}`,
+  },
+  fattura_emessa: {
+    tipo: 'pagamento',
+    titolo: (p) => `Fattura ${p.numero} disponibile`,
+    pagina: () => `${AREA_PERSONALE}/fatture`,
+  },
+});
+
+/**
+ * Notifica al titolare con account (prenotazione.utente_id): chi ha prenotato
+ * senza registrarsi riceve solo l'email.
+ */
+async function alCliente(prenotazione, codice, extra = {}) {
+  if (!prenotazione?.utente_id) {
+    return [];
+  }
+  const avviso = AVVISI_CLIENTE[codice];
+  const parametri = { codice: prenotazione.codice, data: prenotazione.data_arrivo, ...extra };
+  return await invia([prenotazione.utente_id], {
+    tipo: avviso.tipo,
+    priorita: avviso.priorita,
+    codice,
+    parametri,
+    titolo: avviso.titolo(parametri),
+    link: (avviso.pagina ?? paginaPrenotazione)(prenotazione),
+  });
+}
+
+/**
+ * Nuova promozione attiva: la vedono tutti i clienti registrati nella campanella.
+ * ponytail: un solo bulkCreate per tutti i clienti; a lotti se diventano decine di migliaia.
+ */
+async function promozioneAiClienti(promozione) {
+  const clienti = await notificheRepo.trovaIdClienti();
+  return await invia(clienti, {
+    tipo: 'promozione',
+    codice: 'nuova_promozione',
+    parametri: {
+      nome: promozione.nome,
+      inizio: promozione.soggiorno_dal,
+      fine: promozione.soggiorno_al,
+    },
+    titolo: `Nuova offerta: ${promozione.nome}`,
+    link: '/offerte',
+  });
+}
+
 async function nonLette(utenteId) {
   return await notificheRepo.contaNonLette(utenteId);
 }
@@ -108,6 +200,8 @@ module.exports = {
   eventi,
   invia,
   aChiPuo,
+  alCliente,
+  promozioneAiClienti,
   utentiConPermesso,
   elenco,
   nonLette,

@@ -117,9 +117,13 @@ async function riepilogo(prenotazioneId) {
 // Dopo ogni incasso
 // ─────────────────────────────────────
 
-/** Conferma la prenotazione in attesa se l'acconto è coperto. */
-async function dopoIncasso(prenotazioneId, contesto) {
+/** Avvisa il cliente e conferma la prenotazione in attesa se l'acconto è coperto. */
+async function dopoIncasso(pagamento, contesto) {
+  const prenotazioneId = pagamento.prenotazione_id;
   const prenotazione = await prenotazioniRepo.trovaPrenotazionePerId(prenotazioneId);
+  await notifiche.alCliente(prenotazione, 'pagamento_ricevuto', {
+    importo: formatoEuro(pagamento.importo),
+  });
   if (prenotazione.stato === 'cancellata') {
     logger.warn('Incasso su prenotazione cancellata: va rimborsato', {
       prenotazione: prenotazione.codice,
@@ -190,7 +194,7 @@ async function registra(prenotazioneId, dati, contesto) {
     );
   });
 
-  await dopoIncasso(prenotazioneId, contesto);
+  await dopoIncasso(pagamento, contesto);
   return await pagamentoOppure404(pagamento.id);
 }
 
@@ -388,7 +392,7 @@ async function completaOnline(uuid, idTransazione, contesto = WEBHOOK) {
   });
 
   if (completato) {
-    await dopoIncasso(completato.prenotazione_id, contesto);
+    await dopoIncasso(completato, contesto);
   }
 }
 
@@ -563,7 +567,7 @@ async function rimborsa(pagamentoId, { importo, motivo, forza = false }, contest
     );
   }
 
-  return await transazione(contesto, async (transaction) => {
+  const rimborso = await transazione(contesto, async (transaction) => {
     return await pagamentiRepo.creaPagamento(
       {
         prenotazione_id: pagamento.prenotazione_id,
@@ -581,6 +585,12 @@ async function rimborsa(pagamentoId, { importo, motivo, forza = false }, contest
       transaction,
     );
   });
+
+  const prenotazione = await prenotazioniRepo.trovaPrenotazionePerId(pagamento.prenotazione_id);
+  await notifiche.alCliente(prenotazione, 'rimborso_eseguito', {
+    importo: formatoEuro(rimborso.importo),
+  });
+  return rimborso;
 }
 
 // ─────────────────────────────────────

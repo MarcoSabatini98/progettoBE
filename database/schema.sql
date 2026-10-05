@@ -1169,7 +1169,7 @@ CREATE TABLE faq (
 CREATE TABLE notifiche (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   utente_id       INT UNSIGNED  NOT NULL,
-  tipo            ENUM('prenotazione','pagamento','pulizia','manutenzione','chat','recensione','sistema') NOT NULL,
+  tipo            ENUM('prenotazione','pagamento','pulizia','manutenzione','chat','recensione','promozione','sistema') NOT NULL,
   priorita        ENUM('info','successo','avviso','errore') NOT NULL DEFAULT 'info',
   -- codice e parametri: il gestionale traduce il titolo; titolo resta in italiano
   codice          VARCHAR(60)   NOT NULL,

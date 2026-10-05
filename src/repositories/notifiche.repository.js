@@ -43,6 +43,14 @@ const trovaIdUtentiConPermesso = async (permesso) => {
   return utenti.map((utente) => utente.id);
 };
 
+const trovaIdClienti = async () => {
+  const utenti = await Utente.findAll({
+    where: { ruolo: RUOLI.CLIENTE, attivo: true },
+    attributes: ['id'],
+  });
+  return utenti.map((utente) => utente.id);
+};
+
 // ─────────────────────────────────────
 // Scrittura
 // ─────────────────────────────────────
@@ -82,6 +90,7 @@ module.exports = {
   contaNonLette,
   trovaNotificaDiUtente,
   trovaIdUtentiConPermesso,
+  trovaIdClienti,
   creaNotifiche,
   segnaLetta,
   segnaTutteLette,
