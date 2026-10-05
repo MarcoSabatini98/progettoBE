@@ -4,11 +4,14 @@
 // tempo reale; chi è offline le trova al prossimo accesso.
 
 const { EventEmitter } = require('node:events');
+const config = require('../config/env');
 const logger = require('../config/logger');
 const notificheRepo = require('../repositories/notifiche.repository');
 const { nonTrovato } = require('../utils/errori');
 const { pagina, risultato } = require('../utils/paginazione');
-const { aggiungiGiorni, oggi } = require('../utils/date');
+const { aggiungiGiorni, dataItaliana, oggi } = require('../utils/date');
+const auth = require('./auth.service');
+const email = require('./email.service');
 
 // Evento 'nuova' → (notifica) per ogni notifica creata.
 const eventi = new EventEmitter();
@@ -138,10 +141,15 @@ async function alCliente(prenotazione, codice, extra = {}) {
 }
 
 /**
- * Nuova promozione attiva: la vedono tutti i clienti registrati nella campanella.
+ * Nuova promozione attiva: la vedono tutti i clienti registrati nella campanella
+ * e chi ha dato il consenso la riceve anche per email.
  * ponytail: un solo bulkCreate per tutti i clienti; a lotti se diventano decine di migliaia.
  */
 async function promozioneAiClienti(promozione) {
+  // Le email partono in sottofondo: chi pubblica l'offerta non aspetta l'SMTP.
+  promozionePerEmail(promozione).catch((errore) =>
+    logger.warn('Email della promozione non inviate', { errore: errore.message }),
+  );
   const clienti = await notificheRepo.trovaIdClienti();
   return await invia(clienti, {
     tipo: 'promozione',
@@ -154,6 +162,30 @@ async function promozioneAiClienti(promozione) {
     titolo: `Nuova offerta: ${promozione.nome}`,
     link: '/offerte',
   });
+}
+
+/**
+ * Una email per cliente, nella sua lingua, col link per disiscriversi.
+ * ponytail: invio uno alla volta; una coda se i destinatari diventano migliaia.
+ */
+async function promozionePerEmail(promozione) {
+  const clienti = await notificheRepo.trovaClientiMarketing();
+  for (const cliente of clienti) {
+    await email.invia({
+      a: cliente.email,
+      modello: 'promozione',
+      lingua: cliente.lingua,
+      dati: {
+        nome: cliente.nome,
+        offerta: promozione.nome,
+        descrizione: promozione.descrizione,
+        dal: dataItaliana(promozione.soggiorno_dal),
+        al: dataItaliana(promozione.soggiorno_al),
+        link: `${config.urlFrontend}/offerte`,
+        disiscrizione: auth.linkDisiscrizione(cliente),
+      },
+    });
+  }
 }
 
 async function nonLette(utenteId) {

@@ -23,8 +23,9 @@ const schemaDatiPersonali = Joi.object({
 }).min(1);
 
 const schemaPreferenzeEmail = Joi.object({
-  notifiche_email: Joi.boolean().required(),
-});
+  notifiche_email: Joi.boolean(),
+  email_marketing: Joi.boolean(),
+}).min(1);
 
 // ─────────────────────────────────────
 // Gestione account (admin)

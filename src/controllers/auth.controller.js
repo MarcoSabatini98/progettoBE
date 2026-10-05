@@ -124,6 +124,11 @@ const eliminaAccount = async (req, res) => {
   return inviaSuccesso(res, 200, null);
 };
 
+const disiscrivi = async (req, res) => {
+  await authService.disiscrivi(req.body.token, req.contesto);
+  return inviaSuccesso(res, 200, null);
+};
+
 module.exports = {
   registra,
   accedi,
@@ -136,4 +141,5 @@ module.exports = {
   reimpostaPassword,
   cambiaPassword,
   eliminaAccount,
+  disiscrivi,
 };

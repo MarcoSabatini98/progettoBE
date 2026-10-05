@@ -63,6 +63,11 @@ const schemaEliminaAccount = Joi.object({
   password: passwordAttuale.required(),
 });
 
+// Il token del link nelle email delle offerte: uuid.firma
+const schemaDisiscrizione = Joi.object({
+  token: Joi.string().max(200).required(),
+});
+
 module.exports = {
   email,
   nuovaPassword,
@@ -73,4 +78,5 @@ module.exports = {
   schemaReimpostaPassword,
   schemaCambiaPassword,
   schemaEliminaAccount,
+  schemaDisiscrizione,
 };

@@ -22,6 +22,10 @@ const trovaUtentePerId = async (id, transaction = null) => {
   return await Utente.findByPk(id, { transaction });
 };
 
+const trovaUtentePerUuid = async (uuid) => {
+  return await Utente.findOne({ where: { uuid } });
+};
+
 const trovaUtentePerEmail = async (email) => {
   return await Utente.findOne({ where: { email } });
 };
@@ -152,6 +156,7 @@ module.exports = {
   esisteEmail,
   trovaUtentePerAutenticazione,
   trovaProfilo,
+  trovaUtentePerUuid,
   trovaDettaglioUtente,
   trovaUtenti,
   trovaStaffAttivo,

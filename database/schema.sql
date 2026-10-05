@@ -80,6 +80,7 @@ CREATE TABLE utenti (
   attivo                BOOLEAN       NOT NULL DEFAULT TRUE,
   email_verificata_il   DATETIME      NULL,
   notifiche_email       BOOLEAN       NOT NULL DEFAULT TRUE,
+  email_marketing       BOOLEAN       NOT NULL DEFAULT FALSE,   -- offerte via email: stato attuale, la prova sta in consensi
   punti_fedelta         INT           NOT NULL DEFAULT 0,   -- aggiornato dal trigger su movimenti_punti
   ospite_id             INT UNSIGNED  NULL,   -- anagrafica personale del titolare (area cliente); FK dopo ospiti
   ultimo_accesso_il     DATETIME      NULL,

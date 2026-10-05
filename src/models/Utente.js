@@ -65,6 +65,12 @@ const Utente = sequelize.define(
       allowNull: false,
       defaultValue: true,
     },
+    // Stato attuale del consenso alle offerte; ogni cambio resta in consensi.
+    email_marketing: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     punti_fedelta: {
       type: DataTypes.INTEGER,
       allowNull: false,
