@@ -1171,6 +1171,9 @@ CREATE TABLE notifiche (
   utente_id       INT UNSIGNED  NOT NULL,
   tipo            ENUM('prenotazione','pagamento','pulizia','manutenzione','chat','recensione','sistema') NOT NULL,
   priorita        ENUM('info','successo','avviso','errore') NOT NULL DEFAULT 'info',
+  -- codice e parametri: il gestionale traduce il titolo; titolo resta in italiano
+  codice          VARCHAR(60)   NOT NULL,
+  parametri       JSON          NULL,
   titolo          VARCHAR(150)  NOT NULL,
   testo           TEXT          NULL,
   link            VARCHAR(255)  NULL,

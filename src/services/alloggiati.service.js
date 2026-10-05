@@ -137,8 +137,9 @@ async function avvisaDaInviare() {
     await notifiche.aChiPuo(PERMESSI.ALLOGGIATI_INVIA, {
       tipo: 'sistema',
       priorita: 'avviso',
-      titolo: `Alloggiati Web: ${soggiorni.length} soggiorni da inviare`,
-      testo: "Le schedine vanno inviate entro 24 ore dall'arrivo",
+      codice: 'alloggiati_da_inviare',
+      parametri: { totale: soggiorni.length },
+      titolo: `Alloggiati Web: ${soggiorni.length} soggiorni da inviare entro 24 ore dall'arrivo`,
       link: '/staff/alloggiati',
     });
   }

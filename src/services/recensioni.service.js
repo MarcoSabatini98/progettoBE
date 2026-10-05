@@ -109,6 +109,8 @@ async function scrivi(prenotazioneId, utenteId, dati) {
   await notifiche.aChiPuo(PERMESSI.RECENSIONI_MODERA, {
     tipo: 'recensione',
     priorita: recensione.voto <= 2 ? 'avviso' : 'info',
+    codice: 'recensione_nuova',
+    parametri: { voto: recensione.voto },
     titolo: `Nuova recensione: ${recensione.voto}/5`,
     testo: recensione.titolo,
     link: `/staff/recensioni/${recensione.id}`,

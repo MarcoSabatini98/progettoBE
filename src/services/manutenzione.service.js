@@ -107,6 +107,8 @@ async function segnala(dati, contesto) {
     {
       tipo: 'manutenzione',
       priorita: ['alta', 'urgente'].includes(segnalazione.priorita) ? 'avviso' : 'info',
+      codice: segnalazione.camera ? 'guasto_camera' : 'guasto',
+      parametri: { camera: segnalazione.camera?.numero, titolo: segnalazione.titolo },
       titolo: segnalazione.camera
         ? `Guasto camera ${segnalazione.camera.numero}: ${segnalazione.titolo}`
         : segnalazione.titolo,
@@ -138,6 +140,8 @@ async function avvisaDopoAggiornamento(prima, dopo, contesto) {
   if (nuovoIncaricato && nuovoIncaricato !== contesto.utenteId) {
     await notifiche.invia([nuovoIncaricato], {
       tipo: 'manutenzione',
+      codice: 'guasto_assegnato',
+      parametri: { titolo: dopo.titolo },
       titolo: `Ti è stata assegnata: ${dopo.titolo}`,
       link: link(dopo.id),
     });
@@ -148,6 +152,8 @@ async function avvisaDopoAggiornamento(prima, dopo, contesto) {
     await notifiche.invia([prima.segnalata_da], {
       tipo: 'manutenzione',
       priorita: 'successo',
+      codice: 'guasto_risolto',
+      parametri: { titolo: dopo.titolo },
       titolo: `Risolta: ${dopo.titolo}`,
       link: link(dopo.id),
     });

@@ -634,18 +634,16 @@ async function avvisaFermeAlloSdi() {
   const ferme = await fattureRepo.trovaFermeAlloSdi();
   if (ferme.length === 0) return { avvisati: 0 };
 
-  const numeri = (stato) =>
-    ferme.filter((fattura) => fattura.stato_sdi === stato).map(fatturaPa.numeroCompleto);
-  const gruppi = [
-    ['Da inviare', numeri('da_inviare')],
-    ['Scartate', numeri('scartata')],
-  ].filter(([, voci]) => voci.length > 0);
+  const quante = (stato) => ferme.filter((fattura) => fattura.stato_sdi === stato).length;
+  const parametri = { da_inviare: quante('da_inviare'), scartate: quante('scartata') };
 
   const destinatari = await notifiche.aChiPuo(PERMESSI.FATTURE_GESTISCI, {
     tipo: 'pagamento',
     priorita: 'avviso',
-    titolo: `Fatture ferme allo SDI: ${ferme.length}`,
-    testo: gruppi.map(([nome, voci]) => `${nome}: ${voci.join(', ')}`).join(' · '),
+    codice: 'fatture_ferme_sdi',
+    parametri,
+    titolo: `Fatture ferme allo SDI: ${parametri.da_inviare} da inviare, ${parametri.scartate} scartate`,
+    testo: ferme.map(fatturaPa.numeroCompleto).join(', '),
     link: ferme.length === 1 ? `/staff/fatture/${ferme[0].id}` : '/staff/fatture',
   });
   return { avvisati: destinatari.length };

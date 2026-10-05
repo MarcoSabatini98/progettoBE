@@ -239,10 +239,15 @@ async function avvisaOverbooking(calendario, evento) {
   await notifiche.aChiPuo(PERMESSI.PRENOTAZIONI_GESTISCI, {
     tipo: 'prenotazione',
     priorita: 'errore',
-    titolo: `Overbooking camera ${calendario.camera?.numero}: ${nomeCanale(calendario)}`,
-    testo: `Dal ${evento.inizio} al ${evento.fine} si sovrappone a ${conflitti
-      .map((prenotazione) => prenotazione.codice)
-      .join(', ')}`,
+    codice: 'overbooking',
+    parametri: {
+      camera: calendario.camera?.numero,
+      canale: nomeCanale(calendario),
+      inizio: evento.inizio,
+      fine: evento.fine,
+    },
+    titolo: `Overbooking camera ${calendario.camera?.numero} (${nomeCanale(calendario)}) dal ${evento.inizio} al ${evento.fine}`,
+    testo: conflitti.map((prenotazione) => prenotazione.codice).join(', '),
     link: `/staff/prenotazioni/${conflitti[0].id}`,
   });
 }
@@ -263,6 +268,8 @@ async function registraErrore(calendario, errore) {
     await notifiche.aChiPuo(PERMESSI.CALENDARI_GESTISCI, {
       tipo: 'sistema',
       priorita: 'errore',
+      codice: 'calendario_non_sincronizzato',
+      parametri: { canale: nomeCanale(calendario) },
       titolo: `Il calendario ${nomeCanale(calendario)} non si sincronizza`,
       testo: errore.message,
       link: `/staff/calendari/${calendario.id}`,

@@ -16,7 +16,9 @@ const eventi = new EventEmitter();
 /**
  * Crea la stessa notifica per più utenti. Non lancia mai: una notifica persa
  * non deve far fallire l'operazione che l'ha generata.
- * dati: { tipo, titolo, testo?, link?, priorita? }
+ * dati: { tipo, codice, parametri?, titolo, testo?, link?, priorita? }
+ * codice e parametri traducono il titolo nel gestionale; testo porta solo dati
+ * (codici, messaggi), che non si traducono.
  */
 async function invia(utentiIds, dati) {
   const destinatari = [...new Set(utentiIds.filter(Boolean))];
@@ -28,6 +30,8 @@ async function invia(utentiIds, dati) {
     utente_id: utenteId,
     tipo: dati.tipo,
     priorita: dati.priorita ?? 'info',
+    codice: dati.codice,
+    parametri: dati.parametri ?? null,
     titolo: dati.titolo,
     testo: dati.testo ?? null,
     link: dati.link ?? null,

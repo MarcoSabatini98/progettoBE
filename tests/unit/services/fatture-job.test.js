@@ -42,8 +42,9 @@ describe('fatture.avvisaFermeAlloSdi', () => {
     expect(notifiche.aChiPuo).toHaveBeenCalledWith(
       'fatture.gestisci',
       expect.objectContaining({
-        titolo: 'Fatture ferme allo SDI: 1',
-        testo: 'Da inviare: 3/2026',
+        codice: 'fatture_ferme_sdi',
+        parametri: { da_inviare: 1, scartate: 0 },
+        testo: '3/2026',
         link: '/staff/fatture/5',
       }),
     );
@@ -61,8 +62,8 @@ describe('fatture.avvisaFermeAlloSdi', () => {
     expect(notifiche.aChiPuo).toHaveBeenCalledWith(
       'fatture.gestisci',
       expect.objectContaining({
-        titolo: 'Fatture ferme allo SDI: 3',
-        testo: 'Da inviare: 3/2026, 5/2026 · Scartate: 4/2026',
+        parametri: { da_inviare: 2, scartate: 1 },
+        testo: '3/2026, 4/2026, 5/2026',
         link: '/staff/fatture',
       }),
     );
