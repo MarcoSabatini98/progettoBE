@@ -16,9 +16,9 @@ const { avviaJob, fermaJob } = require('./src/jobs');
 const ATTESA_MASSIMA_MS = 10_000;
 
 // Contro chi apre connessioni e le tiene appese mandando i dati a goccia
-// (slowloris): intestazioni entro 20 secondi, richiesta intera entro 60
-// (bastano anche per caricare un file grande su una linea lenta).
-const server = http.createServer({ headersTimeout: 20_000, requestTimeout: 60_000 }, app);
+// (slowloris): intestazioni entro 20 secondi, richiesta intera entro 3 minuti
+// (bastano per un video di 50 MB anche con ~2,5 Mbit/s in upload).
+const server = http.createServer({ headersTimeout: 20_000, requestTimeout: 180_000 }, app);
 avviaSocket(server);
 let inChiusura = false;
 

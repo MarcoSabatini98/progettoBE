@@ -79,6 +79,8 @@ async function gestoreErrori(err, req, res, next) {
   // ponytail: su un 500 i file caricati restano (il record potrebbe esistere già).
   logger.error(`${req.method} ${req.originalUrl}`, {
     utenteId: req.contesto?.utenteId,
+    // Gli errori del database hanno lo stack senza il messaggio: va scritto a parte.
+    messaggio: err?.message,
     errore: err?.stack ?? String(err),
   });
   const status = errore instanceof ErroreApp ? errore.status : 500;

@@ -281,10 +281,11 @@ CREATE TABLE camere_servizi (
 );
 
 -- Immagini e video. Relazione polimorfica: entita + entita_id.
--- entita_id NULL per i contenuti generali (home, logo, struttura, varie).
+-- entita_id NULL per i contenuti generali (home, home_scuro, logo, struttura, varie).
+-- home e home_scuro: sfondo della home col tema chiaro e col tema scuro.
 CREATE TABLE media (
   id                  INT UNSIGNED  NOT NULL AUTO_INCREMENT,
-  entita              ENUM('camera','tipologia_camera','servizio','pacchetto','struttura','home','logo','varie') NOT NULL,
+  entita              ENUM('camera','tipologia_camera','servizio','pacchetto','struttura','home','home_scuro','logo','varie') NOT NULL,
   entita_id           INT UNSIGNED  NULL,
   percorso            VARCHAR(255)  NOT NULL,      -- relativo alla cartella uploads
   tipo_mime           VARCHAR(50)   NOT NULL,

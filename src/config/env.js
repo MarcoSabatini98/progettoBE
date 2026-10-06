@@ -43,7 +43,7 @@ const schema = Joi.object({
 
   UPLOAD_DIR: Joi.string().default('uploads'),
   UPLOAD_MAX_MB: Joi.number().positive().default(5),
-  UPLOAD_VIDEO_MAX_MB: Joi.number().positive().default(20),
+  UPLOAD_VIDEO_MAX_MB: Joi.number().positive().default(50),
 
   SMTP_HOST: facoltativo,
   SMTP_PORT: Joi.number().port().default(587),
