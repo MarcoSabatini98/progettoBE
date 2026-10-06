@@ -5,6 +5,7 @@
 //  - tabelle ufficiali Alloggiati Web (comuni, stati, documenti) dai file della
 //    Polizia di Stato in database/dati (aggiornati ogni volta che si rilancia)
 //  - il primo amministratore, da SEED_ADMIN_EMAIL e SEED_ADMIN_PASSWORD
+//  - il nome della struttura, da SEED_STRUTTURA_NOME
 //  - le voci predefinite della checklist delle pulizie
 //  - le dotazioni più comuni delle camere
 //  - il piano tariffario "Standard" predefinito
@@ -22,6 +23,7 @@ const modelli = require('../src/models');
 const utentiRepo = require('../src/repositories/utenti.repository');
 const authService = require('../src/services/auth.service');
 const chatService = require('../src/services/chat.service');
+const impostazioniService = require('../src/services/impostazioni.service');
 
 const CARTELLA_DATI = path.join(__dirname, 'dati');
 const RIGHE_PER_BLOCCO = 1000;
@@ -195,9 +197,23 @@ async function creaPrimoAdmin() {
   return `creato (${email})`;
 }
 
+// Il nome nella barra del sito finché non c'è un logo; poi si cambia dal gestionale.
+async function impostaNomeStruttura() {
+  const nome = process.env.SEED_STRUTTURA_NOME?.trim();
+  if (!nome) {
+    return 'non impostato: SEED_STRUTTURA_NOME nel file .env';
+  }
+  if (await impostazioniService.leggi('struttura_nome')) {
+    return 'già presente';
+  }
+  await impostazioniService.aggiorna({ struttura_nome: nome });
+  return nome;
+}
+
 async function seedBase() {
   const alloggiati = await caricaAlloggiati();
   const admin = await creaPrimoAdmin();
+  const nomeStruttura = await impostaNomeStruttura();
 
   // La checklist si crea solo la prima volta: dopo è della struttura.
   const vociChecklist = await modelli.ChecklistModello.count();
@@ -218,6 +234,7 @@ async function seedBase() {
     'Alloggiati: comuni e stati': alloggiati.luoghi,
     'Alloggiati: documenti': alloggiati.documenti,
     Amministratore: admin,
+    'Nome della struttura': nomeStruttura,
     'Checklist pulizie': vociChecklist === 0 ? `${CHECKLIST.length} voci create` : 'già presente',
     Dotazioni: `${DOTAZIONI.length} verificate`,
     'Piano tariffario': pianiEsistenti === 0 ? 'Standard creato' : 'già presente',
