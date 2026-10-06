@@ -5,6 +5,11 @@ const TIPI_IMPOSTAZIONE = Object.freeze(['testo', 'numero', 'booleano', 'json'])
 // Tema del sito: sistema segue il dispositivo. Ognuno può cambiarlo sul suo.
 const TEMI_SITO = Object.freeze(['sistema', 'chiaro', 'scuro']);
 
+// Solo in sviluppo: il sito aperto da un telefono sulla stessa rete,
+// es. http://192.168.1.20:4200 (indirizzi privati e localhost, qualunque porta).
+const ORIGINE_RETE_LOCALE =
+  /^http:\/\/(localhost|127\.0\.0\.1|10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}):\d+$/;
+
 const ORARIO = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 // Formato richiesto da alcune impostazioni di testo; le altre accettano qualunque testo.
@@ -57,6 +62,7 @@ const CAMPI_TRADUCIBILI = Object.freeze({
 });
 
 module.exports = {
+  ORIGINE_RETE_LOCALE,
   TIPI_IMPOSTAZIONE,
   FORMATI_IMPOSTAZIONI,
   TIPI_DOCUMENTO_LEGALE,

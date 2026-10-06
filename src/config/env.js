@@ -4,6 +4,7 @@
 
 const Joi = require('joi');
 const messaggi = require('./messaggi-joi');
+const { ORIGINE_RETE_LOCALE } = require('../constants/sistema.constants');
 
 if (process.env.NODE_ENV !== 'test') {
   require('dotenv').config({ quiet: true });
@@ -80,6 +81,7 @@ if (error) {
 }
 
 const produzione = v.NODE_ENV === 'production';
+const urlFrontend = v.FRONTEND_URL.replace(/\/$/, '');
 
 module.exports = Object.freeze({
   ambiente: v.NODE_ENV,
@@ -87,7 +89,9 @@ module.exports = Object.freeze({
   test: v.NODE_ENV === 'test',
   porta: v.PORT,
   urlApp: v.APP_URL.replace(/\/$/, ''),
-  urlFrontend: v.FRONTEND_URL.replace(/\/$/, ''),
+  urlFrontend,
+  // CORS di API e socket: in sviluppo anche dal telefono sulla rete di casa.
+  originiFrontend: produzione ? [urlFrontend] : [urlFrontend, ORIGINE_RETE_LOCALE],
   proxyFidati: v.PROXY_FIDATI,
   livelloLog: v.LOG_LEVEL ?? (produzione ? 'info' : 'debug'),
 
