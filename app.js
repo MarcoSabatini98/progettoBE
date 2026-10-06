@@ -28,7 +28,7 @@ if (config.produzione) {
 app.use(helmet());
 app.use(
   cors({
-    origin: config.urlFrontend,
+    origin: config.originiFrontend,
     // cookie del refresh token
     credentials: true,
     // il frontend legge da qui il nome dei file scaricati

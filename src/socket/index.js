@@ -22,7 +22,7 @@ let io = null;
 
 function avviaSocket(server) {
   io = new Server(server, {
-    cors: { origin: config.urlFrontend, credentials: true },
+    cors: { origin: config.originiFrontend, credentials: true },
     maxHttpBufferSize: DIMENSIONE_MASSIMA_BYTE,
   });
   io.use(autenticaSocket);

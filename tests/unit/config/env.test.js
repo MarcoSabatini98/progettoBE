@@ -33,6 +33,19 @@ describe('config/env', () => {
     expect(Object.isFrozen(config)).toBe(true);
   });
 
+  test('in sviluppo il CORS accetta anche la rete locale, in produzione solo il frontend', () => {
+    const ammessa = (config, origine) =>
+      config.originiFrontend.some((o) => (o instanceof RegExp ? o.test(origine) : o === origine));
+    const sviluppo = carica({ ...BASE, NODE_ENV: 'development' });
+    expect(ammessa(sviluppo, 'http://192.168.1.20:4200')).toBe(true);
+    expect(ammessa(sviluppo, 'http://10.0.0.7:4200')).toBe(true);
+    expect(ammessa(sviluppo, 'http://192.168.1.20.evil.com:4200')).toBe(false);
+    expect(ammessa(sviluppo, 'https://evil.com')).toBe(false);
+
+    const produzione = carica({ ...BASE, NODE_ENV: 'production', FRONTEND_URL: 'https://sito.it' });
+    expect(produzione.originiFrontend).toEqual(['https://sito.it']);
+  });
+
   test('toglie la barra finale dagli URL', () => {
     const config = carica({ ...BASE, FRONTEND_URL: 'https://sito.it/' });
     expect(config.urlFrontend).toBe('https://sito.it');
