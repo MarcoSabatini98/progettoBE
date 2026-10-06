@@ -11,6 +11,13 @@ if (process.env.NODE_ENV !== 'test') {
 
 const facoltativo = Joi.string().allow('').default('');
 const segreto = Joi.string().min(32).required();
+/** Facoltativo, ma obbligatorio se la variabile indicata ha un valore. */
+const obbligatorioCon = (variabile) =>
+  Joi.when(variabile, {
+    is: Joi.string().min(1),
+    then: Joi.string().required(),
+    otherwise: facoltativo,
+  });
 
 const schema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
@@ -43,13 +50,15 @@ const schema = Joi.object({
   SMTP_PASSWORD: facoltativo,
   MAIL_MITTENTE: facoltativo,
 
+  // Senza il segreto del webhook i pagamenti partirebbero ma non verrebbero mai
+  // confermati: se il provider è configurato, il segreto è obbligatorio.
   STRIPE_SECRET_KEY: facoltativo,
-  STRIPE_WEBHOOK_SECRET: facoltativo,
+  STRIPE_WEBHOOK_SECRET: obbligatorioCon('STRIPE_SECRET_KEY'),
 
   PAYPAL_AMBIENTE: Joi.string().valid('sandbox', 'live').default('sandbox'),
   PAYPAL_CLIENT_ID: facoltativo,
   PAYPAL_CLIENT_SECRET: facoltativo,
-  PAYPAL_WEBHOOK_ID: facoltativo,
+  PAYPAL_WEBHOOK_ID: obbligatorioCon('PAYPAL_CLIENT_SECRET'),
 
   ALLOGGIATI_UTENTE: facoltativo,
   ALLOGGIATI_PASSWORD: facoltativo,

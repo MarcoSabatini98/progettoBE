@@ -7,6 +7,9 @@
 const config = require('../config/env');
 const { servizioNonDisponibile } = require('./errori');
 
+// Una risposta che non arriva non deve tenere occupata la richiesta del cliente.
+const ATTESA_MASSIMA_MS = 15000;
+
 let token = null;
 
 function indirizzoApi() {
@@ -35,6 +38,7 @@ async function tokenValido() {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: 'grant_type=client_credentials',
+    signal: AbortSignal.timeout(ATTESA_MASSIMA_MS),
   });
   if (!risposta.ok) {
     throw new Error(`PayPal OAuth ${risposta.status}`);
@@ -45,7 +49,8 @@ async function tokenValido() {
   return token.valore;
 }
 
-async function chiama(percorso, corpo) {
+/** intestazioni: aggiuntive, per esempio PayPal-Request-Id per l'idempotenza. */
+async function chiama(percorso, corpo, intestazioni = {}) {
   if (!config.paypal.attivo) {
     throw servizioNonDisponibile('PAYPAL_NON_CONFIGURATO', 'I pagamenti PayPal non sono attivi');
   }
@@ -55,8 +60,10 @@ async function chiama(percorso, corpo) {
     headers: {
       Authorization: `Bearer ${await tokenValido()}`,
       'Content-Type': 'application/json',
+      ...intestazioni,
     },
     body: corpo ? JSON.stringify(corpo) : undefined,
+    signal: AbortSignal.timeout(ATTESA_MASSIMA_MS),
   });
   const dati = await risposta.json().catch(() => ({}));
   if (!risposta.ok) {
@@ -102,9 +109,17 @@ async function creaOrdine({
   return { id: ordine.id, url: link?.href };
 }
 
-/** Cattura l'ordine approvato. Restituisce l'id della cattura o null se non completata. */
+/**
+ * Cattura l'ordine approvato. Restituisce l'id della cattura o null se non completata.
+ * Il ritorno del cliente e il webhook possono catturare insieme: con lo stesso
+ * PayPal-Request-Id PayPal esegue la cattura una volta sola e ripete la risposta.
+ */
 async function catturaOrdine(idOrdine) {
-  const esito = await chiama(`/v2/checkout/orders/${encodeURIComponent(idOrdine)}/capture`);
+  const esito = await chiama(
+    `/v2/checkout/orders/${encodeURIComponent(idOrdine)}/capture`,
+    undefined,
+    { 'PayPal-Request-Id': `cattura-${idOrdine}` },
+  );
   const cattura = esito.purchase_units?.[0]?.payments?.captures?.[0];
   if (esito.status !== 'COMPLETED' || !cattura) {
     return null;
