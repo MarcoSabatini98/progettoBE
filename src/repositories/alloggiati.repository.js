@@ -48,18 +48,20 @@ const trovaSoggiorniIniziatiDal = async (dal) => {
 };
 
 /**
- * Comuni e stati il cui nome inizia con il testo cercato.
- * ponytail: esclusi i soppressi; chi è nato in un comune soppresso lo corregge
- * la reception.
+ * Comuni e stati il cui nome inizia con il testo cercato, in vigore oggi o alla
+ * data indicata: chi è nato in un comune poi soppresso (fusioni, cambi di
+ * provincia) va registrato con il codice di allora.
+ * ponytail: la tabella non ha la data di inizio validità, quindi alla data di
+ * nascita compaiono anche i comuni nati dopo; la provincia li distingue.
  */
-const cercaLuoghi = async ({ cerca, tipo }) => {
+const cercaLuoghi = async ({ cerca, tipo, in_vigore_il: inVigoreIl }) => {
   return await AlloggiatiLuogo.findAll({
     where: {
       descrizione: { [Op.like]: `${cerca}%` },
-      soppresso_il: null,
+      soppresso_il: inVigoreIl ? { [Op.or]: [null, { [Op.gt]: inVigoreIl }] } : null,
       ...(tipo && { tipo }),
     },
-    attributes: ['codice', 'descrizione', 'provincia', 'tipo'],
+    attributes: ['codice', 'descrizione', 'provincia', 'tipo', 'soppresso_il'],
     order: [['descrizione', 'ASC']],
     limit: LUOGHI_PER_RICERCA,
   });

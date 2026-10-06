@@ -1,7 +1,7 @@
 // src/validators/alloggiati.validator.js
 
 const Joi = require('joi');
-const { id } = require('./comune.validator');
+const { id, data } = require('./comune.validator');
 const { ESITI_ALLOGGIATI, TIPI_LUOGO } = require('../constants/prenotazioni.constants');
 
 // Solo lettere, spazi, apostrofi, punti e trattini: niente caratteri jolly di LIKE.
@@ -13,6 +13,8 @@ const schemaCercaLuoghi = Joi.object({
     .pattern(/^[\p{L}\s'.-]+$/u)
     .required(),
   tipo: Joi.string().valid(...TIPI_LUOGO),
+  // Per il luogo di nascita: anche i comuni soppressi dopo quella data.
+  in_vigore_il: data,
 });
 
 // Un file con le schedine di più prenotazioni.
