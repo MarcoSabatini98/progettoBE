@@ -7,8 +7,10 @@ const { rateLimit } = require('express-rate-limit');
 const config = require('../config/env');
 const { ErroreApp } = require('../utils/errori');
 
-function limite({ minuti, richieste, messaggio, salta }) {
+/** chiave: di chi contare le richieste; senza, l'indirizzo IP. */
+function limite({ minuti, richieste, messaggio, salta, chiave }) {
   return rateLimit({
+    ...(chiave && { keyGenerator: chiave }),
     windowMs: minuti * 60 * 1000,
     limit: richieste,
     standardHeaders: 'draft-8',
@@ -44,4 +46,19 @@ const limiteChatPubblica = limite({
   messaggio: 'Troppi messaggi in poco tempo: riprova tra qualche minuto',
 });
 
-module.exports = { limiteGenerale, limiteAccesso, limiteChatPubblica };
+/**
+ * Tentativi sullo stesso account (accesso, reset password), da qualunque IP:
+ * ferma chi prova le password da tanti indirizzi diversi. Dopo l'IP, così chi
+ * supera quello non consuma i tentativi del vero titolare.
+ */
+const limiteAccount = limite({
+  minuti: 15,
+  richieste: 10,
+  messaggio: 'Troppi tentativi su questo account: riprova tra qualche minuto',
+  chiave: (req) =>
+    `account:${String(req.body?.email ?? '')
+      .trim()
+      .toLowerCase()}`,
+});
+
+module.exports = { limiteGenerale, limiteAccesso, limiteAccount, limiteChatPubblica };

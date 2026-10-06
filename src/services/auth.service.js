@@ -33,6 +33,11 @@ const { aggiungiOre } = require('../utils/date');
 const COSTO_BCRYPT = 12;
 const TENTATIVI_MAX_CODICE = 5;
 const DURATA_TOKEN_CHAT = '30d';
+// Solo l'algoritmo con cui firmiamo: un token con alg diverso (o "none") è rifiutato.
+const ALGORITMI_JWT = ['HS256'];
+// Hash di una password casuale: con un'email inesistente si fa lo stesso lavoro
+// di bcrypt, così dai tempi di risposta non si capisce chi è registrato.
+const HASH_FINTO = '$2b$12$5wkPkyGjn81PaYIsHNb80.5SEi9HQnvvOsu2cvzVP2PpxmktWaTMK';
 
 // HMAC con il segreto dei refresh: chi legge il DB non può fabbricare token validi.
 function impronta(valore) {
@@ -45,6 +50,12 @@ function normalizzaEmail(indirizzo) {
 
 async function hashPassword(password) {
   return await bcrypt.hash(password, COSTO_BCRYPT);
+}
+
+/** Confronta la password; senza utente confronta con HASH_FINTO e dà false. */
+async function passwordGiustaPer(utente, password) {
+  const giusta = await bcrypt.compare(password, utente?.password_hash ?? HASH_FINTO);
+  return Boolean(utente) && giusta;
 }
 
 // Dati del client salvati con token e consensi (per sicurezza e prova del consenso).
@@ -185,8 +196,7 @@ async function accedi(indirizzo, password, meta) {
   });
 
   // Stesso messaggio per email e password sbagliate: non si rivela chi è registrato.
-  const passwordGiusta = utente ? await bcrypt.compare(password, utente.password_hash) : false;
-  if (!passwordGiusta) {
+  if (!(await passwordGiustaPer(utente, password))) {
     throw nonAutenticato('CREDENZIALI_NON_VALIDE', 'Email o password non corretti');
   }
   if (!utente.attivo) {
@@ -375,8 +385,7 @@ async function reimpostaPassword(token, nuovaPassword) {
 
 async function cambiaPassword(utenteId, attuale, nuova) {
   const utente = await utentiRepo.trovaUtentePerAutenticazione({ id: utenteId });
-  const attualeGiusta = utente ? await bcrypt.compare(attuale, utente.password_hash) : false;
-  if (!attualeGiusta) {
+  if (!(await passwordGiustaPer(utente, attuale))) {
     throw richiestaNonValida('PASSWORD_ATTUALE_ERRATA', 'La password attuale non è corretta');
   }
 
@@ -393,7 +402,7 @@ async function cambiaPassword(utenteId, attuale, nuova) {
 
 function verificaAccess(token) {
   try {
-    return jwt.verify(token, config.jwt.segretoAccess);
+    return jwt.verify(token, config.jwt.segretoAccess, { algorithms: ALGORITMI_JWT });
   } catch (errore) {
     if (errore.name === 'TokenExpiredError') {
       throw nonAutenticato('TOKEN_SCADUTO', 'Sessione scaduta');
@@ -431,7 +440,7 @@ async function creaVisitatore(dati, meta) {
 async function verificaVisitatore(token) {
   let payload;
   try {
-    payload = jwt.verify(token, config.jwt.segretoChat);
+    payload = jwt.verify(token, config.jwt.segretoChat, { algorithms: ALGORITMI_JWT });
   } catch {
     throw nonAutenticato(
       'TOKEN_CHAT_NON_VALIDO',
