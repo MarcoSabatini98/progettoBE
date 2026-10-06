@@ -107,7 +107,6 @@ async function aggiungiFoto(tipologia, foto) {
 async function impostaStruttura(admin) {
   await impostazioniService.aggiorna(
     {
-      struttura_nome: 'Hotel Prova',
       struttura_ragione_sociale: 'Hotel Prova S.r.l.',
       struttura_partita_iva: '01234567890',
       struttura_codice_fiscale: '01234567890',
