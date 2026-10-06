@@ -16,13 +16,14 @@ const ENTITA_MEDIA = Object.freeze([
   'servizio',
   'pacchetto',
   'struttura',
-  'home',
+  'home', // sfondo della home col tema chiaro
+  'home_scuro', // e col tema scuro
   'logo',
   'varie',
 ]);
 
-// Le sole entità che accettano anche un video: lo sfondo della home.
-const ENTITA_CON_VIDEO = Object.freeze(['home']);
+// Le sole entità che accettano anche un video: gli sfondi della home.
+const ENTITA_CON_VIDEO = Object.freeze(['home', 'home_scuro']);
 
 module.exports = {
   STATI_CAMERA,
