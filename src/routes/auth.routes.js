@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/auth.controller');
 const { richiediAccesso } = require('../middlewares/autenticazione.middleware');
-const { limiteAccesso } = require('../middlewares/limiti.middleware');
+const { limiteAccesso, limiteAccount } = require('../middlewares/limiti.middleware');
 const { valida } = require('../middlewares/validazione.middleware');
 const {
   schemaRegistra,
@@ -22,7 +22,13 @@ const {
 // ─────────────────────────────────────
 
 router.post('/registrazione', limiteAccesso, valida({ body: schemaRegistra }), controller.registra);
-router.post('/accesso', limiteAccesso, valida({ body: schemaAccedi }), controller.accedi);
+router.post(
+  '/accesso',
+  limiteAccesso,
+  limiteAccount,
+  valida({ body: schemaAccedi }),
+  controller.accedi,
+);
 
 // Il refresh token viaggia nel cookie httpOnly, non nell'header.
 router.post('/rinnovo', controller.rinnova);
@@ -50,6 +56,7 @@ router.post(
 router.post(
   '/password/reset',
   limiteAccesso,
+  limiteAccount,
   valida({ body: schemaRichiediReset }),
   controller.richiediResetPassword,
 );
@@ -62,6 +69,7 @@ router.post(
 router.put(
   '/password',
   richiediAccesso,
+  limiteAccesso,
   valida({ body: schemaCambiaPassword }),
   controller.cambiaPassword,
 );
@@ -73,6 +81,7 @@ router.put(
 router.delete(
   '/account',
   richiediAccesso,
+  limiteAccesso,
   valida({ body: schemaEliminaAccount }),
   controller.eliminaAccount,
 );

@@ -15,7 +15,10 @@ const { avviaJob, fermaJob } = require('./src/jobs');
 // Oltre questo tempo lo spegnimento viene forzato.
 const ATTESA_MASSIMA_MS = 10_000;
 
-const server = http.createServer(app);
+// Contro chi apre connessioni e le tiene appese mandando i dati a goccia
+// (slowloris): intestazioni entro 20 secondi, richiesta intera entro 60
+// (bastano anche per caricare un file grande su una linea lenta).
+const server = http.createServer({ headersTimeout: 20_000, requestTimeout: 60_000 }, app);
 avviaSocket(server);
 let inChiusura = false;
 

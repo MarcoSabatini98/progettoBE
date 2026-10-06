@@ -17,10 +17,12 @@ const { inviaSuccesso } = require('./src/utils/risposta');
 
 const app = express();
 
-// ponytail: su Render davanti all'app c'è un solo proxy; senza questo req.ip
-// sarebbe il suo e i limiti per IP bloccherebbero tutti insieme.
+// Quanti proxy stanno davanti all'app (Render: 1; Cloudflare + Render: 2).
+// Senza, req.ip sarebbe quello del proxy e i limiti per IP bloccherebbero
+// tutti insieme; con un numero più alto del vero, chiunque potrebbe
+// fingersi un altro IP scrivendo X-Forwarded-For.
 if (config.produzione) {
-  app.set('trust proxy', 1);
+  app.set('trust proxy', config.proxyFidati);
 }
 
 app.use(helmet());
@@ -34,6 +36,12 @@ app.use(
   }),
 );
 app.use('/api', limiteGenerale);
+// Le risposte delle API contengono dati personali: né il browser né un proxy
+// devono conservarle (OWASP REST Security).
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  return next();
+});
 
 // Il webhook di Stripe verifica la firma sul corpo originale, byte per byte:
 // va letto grezzo prima che express.json lo trasformi.

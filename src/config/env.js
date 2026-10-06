@@ -17,6 +17,7 @@ const schema = Joi.object({
   PORT: Joi.number().port().default(3000),
   APP_URL: Joi.string().uri().default('http://localhost:3000'),
   FRONTEND_URL: Joi.string().uri().default('http://localhost:4200'),
+  PROXY_FIDATI: Joi.number().integer().min(0).max(5).default(1),
   LOG_LEVEL: Joi.string().valid('error', 'warn', 'info', 'http', 'debug').empty(''),
 
   DB_HOST: Joi.string().default('localhost'),
@@ -77,6 +78,7 @@ module.exports = Object.freeze({
   porta: v.PORT,
   urlApp: v.APP_URL.replace(/\/$/, ''),
   urlFrontend: v.FRONTEND_URL.replace(/\/$/, ''),
+  proxyFidati: v.PROXY_FIDATI,
   livelloLog: v.LOG_LEVEL ?? (produzione ? 'info' : 'debug'),
 
   db: {

@@ -24,6 +24,11 @@ const { descriviErrore } = require('./errori');
 // dura 30): i socket si chiudono comunque dopo un giorno e si ricollegano.
 const DURATA_MASSIMA_MS = 24 * 60 * 60 * 1000;
 
+// Ogni SCRIVE costa query al database e lo manda anche chi non ha un account:
+// dallo stesso socket se ne accetta al massimo uno ogni tanto (l'ultimo, che
+// spegne l'indicatore, passa sempre).
+const SCRIVE_OGNI_MS = 1000;
+
 // Schede aperte da ogni membro dello staff.
 // ponytail: in memoria del processo come le presenze del service; con più
 // istanze servirebbe l'adapter Redis di socket.io.
@@ -68,7 +73,14 @@ function chiudiAllaScadenza(socket) {
  */
 function ascoltaScrittura(socket) {
   const { chi } = socket.data;
+  let ultima = 0;
   socket.on(EVENTI_SOCKET.SCRIVE, async (dati, ack) => {
+    const adesso = Date.now();
+    if (dati?.attivo !== false && adesso - ultima < SCRIVE_OGNI_MS) {
+      rispondi(ack, { successo: true });
+      return;
+    }
+    ultima = adesso;
     try {
       const uuid = typeof dati?.conversazione === 'string' ? dati.conversazione : '';
       const conversazione = await chatService.accessibile(uuid, chi);
