@@ -5,7 +5,7 @@ const router = express.Router();
 const controller = require('../controllers/contenuti.controller');
 const { richiediAccesso } = require('../middlewares/autenticazione.middleware');
 const { richiediPermesso } = require('../middlewares/permessi.middleware');
-const { caricaImmagine } = require('../middlewares/upload.middleware');
+const { caricaMedia } = require('../middlewares/upload.middleware');
 const { valida } = require('../middlewares/validazione.middleware');
 const { schemaIdParam } = require('../validators/comune.validator');
 const { schemaLingua } = require('../validators/camere.validator');
@@ -71,7 +71,7 @@ router.put(
 router.post(
   '/media',
   gestisci,
-  caricaImmagine,
+  caricaMedia,
   valida({ body: schemaAggiungiMedia }),
   controller.aggiungiMedia,
 );

@@ -24,6 +24,11 @@ const IMMAGINI = {
   'image/webp': '.webp',
 };
 
+const VIDEO = {
+  'video/mp4': '.mp4',
+  'video/webm': '.webm',
+};
+
 const DOCUMENTI = {
   ...IMMAGINI,
   'application/pdf': '.pdf',
@@ -39,6 +44,9 @@ const FIRME = {
     [8, '57454250'],
   ],
   'application/pdf': [[0, '255044462d']],
+  // MP4: il box "ftyp" dopo i 4 byte della sua lunghezza. WebM: intestazione EBML.
+  'video/mp4': [[4, '66747970']],
+  'video/webm': [[0, '1a45dfa3']],
 };
 const BYTE_INIZIALI = 16;
 
@@ -54,9 +62,23 @@ async function contenutoCoerente(caricato) {
   }
 }
 
-/** Dopo multer: rifiuta la richiesta se un file non è davvero del formato dichiarato. */
+// I video hanno un limite a parte: multer applica il più alto, qui quello del tipo.
+const limite = (caricato) =>
+  caricato.mimetype.startsWith('video/') ? config.upload.maxByteVideo : config.upload.maxByte;
+
+/**
+ * Dopo multer: rifiuta la richiesta se un file supera il limite del suo tipo
+ * o non è davvero del formato dichiarato.
+ */
 async function verificaContenuto(req, res, next) {
   const caricati = req.file ? [req.file] : (req.files ?? []);
+  if (caricati.some((caricato) => caricato.size > limite(caricato))) {
+    throw new ErroreApp(
+      413,
+      'FILE_TROPPO_GRANDE',
+      'Il file supera la dimensione massima consentita',
+    );
+  }
   const esiti = await Promise.all(caricati.map(contenutoCoerente));
   if (esiti.includes(false)) {
     throw new ErroreApp(
@@ -72,8 +94,9 @@ async function verificaContenuto(req, res, next) {
  * @param {string} cartella         sottocartella di UPLOAD_DIR
  * @param {Object<string, string>} estensioni  tipi MIME ammessi → estensione
  * @param {string} formati          elenco leggibile per il messaggio d'errore
+ * @param {number} [maxByte]        limite di multer, se più alto di quello delle immagini
  */
-function caricatore(cartella, estensioni, formati) {
+function caricatore(cartella, estensioni, formati, maxByte = config.upload.maxByte) {
   return multer({
     // con una stringa multer crea la cartella se manca
     storage: multer.diskStorage({
@@ -88,13 +111,18 @@ function caricatore(cartella, estensioni, formati) {
         new ErroreApp(415, 'FORMATO_FILE_NON_VALIDO', `Formato non supportato: usa ${formati}`),
       );
     },
-    limits: { fileSize: config.upload.maxByte, files: ALLEGATI_MAX },
+    limits: { fileSize: maxByte, files: ALLEGATI_MAX },
   });
 }
 
-/** Un'immagine nel campo "file" (galleria del sito). */
-const caricaImmagine = [
-  caricatore(CARTELLE_UPLOAD.media, IMMAGINI, 'JPG, PNG o WEBP').single('file'),
+/** Un'immagine o un video nel campo "file" (gallerie e sfondo del sito). */
+const caricaMedia = [
+  caricatore(
+    CARTELLE_UPLOAD.media,
+    { ...IMMAGINI, ...VIDEO },
+    'JPG, PNG, WEBP, MP4 o WEBM',
+    config.upload.maxByteVideo,
+  ).single('file'),
   verificaContenuto,
 ];
 
@@ -113,4 +141,4 @@ const caricaAllegatiChat = [
   verificaContenuto,
 ];
 
-module.exports = { caricaImmagine, caricaDocumento, caricaAllegatiChat };
+module.exports = { caricaMedia, caricaDocumento, caricaAllegatiChat };

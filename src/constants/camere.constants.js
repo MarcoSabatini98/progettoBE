@@ -21,10 +21,14 @@ const ENTITA_MEDIA = Object.freeze([
   'varie',
 ]);
 
+// Le sole entità che accettano anche un video: lo sfondo della home.
+const ENTITA_CON_VIDEO = Object.freeze(['home']);
+
 module.exports = {
   STATI_CAMERA,
   STATI_PULIZIA_CAMERA,
   TIPI_SERVIZIO,
   CALCOLO_PREZZO,
   ENTITA_MEDIA,
+  ENTITA_CON_VIDEO,
 };
