@@ -48,6 +48,26 @@ describe('config/env', () => {
     expect(config.smtp.attivo).toBe(true);
   });
 
+  test('con un provider di pagamento configurato pretende il segreto del webhook', () => {
+    expect(() => carica({ ...BASE, STRIPE_SECRET_KEY: 'sk_test_x' })).toThrow(
+      /STRIPE_WEBHOOK_SECRET è obbligatorio/,
+    );
+    expect(() =>
+      carica({
+        ...BASE,
+        PAYPAL_CLIENT_ID: 'id',
+        PAYPAL_CLIENT_SECRET: 'segreto',
+        PAYPAL_WEBHOOK_ID: '',
+      }),
+    ).toThrow(/PAYPAL_WEBHOOK_ID non può essere vuoto/);
+    const config = carica({
+      ...BASE,
+      STRIPE_SECRET_KEY: 'sk_test_x',
+      STRIPE_WEBHOOK_SECRET: 'whsec_x',
+    });
+    expect(config.stripe.attivo).toBe(true);
+  });
+
   test('elenca in italiano tutte le variabili sbagliate', () => {
     expect(() =>
       carica({ ...BASE, DB_NAME: undefined, JWT_ACCESS_SECRET: 'corto', DB_PORT: 'abc' }),

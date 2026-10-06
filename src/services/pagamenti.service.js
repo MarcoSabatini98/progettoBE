@@ -465,8 +465,9 @@ async function webhookStripe(corpoGrezzo, firma) {
 }
 
 /**
- * Cattura dopo il ritorno da PayPal (?token=<id ordine>). Il webhook
- * PAYMENT.CAPTURE.COMPLETED fa lo stesso: chi arriva primo vince.
+ * Cattura dopo il ritorno da PayPal (?token=<id ordine>), oppure dal webhook
+ * CHECKOUT.ORDER.APPROVED se il cliente chiude la pagina prima di tornare.
+ * Chi arriva primo vince: la cattura su PayPal è idempotente.
  */
 async function catturaPaypal(idOrdine) {
   const pagamento = await pagamentiRepo.trovaPagamentoPaypal(idOrdine);
@@ -502,6 +503,10 @@ async function webhookPaypal(intestazioni, evento) {
   const registrato = { id: evento.id, tipo: evento.event_type, payload: risorsa };
 
   await elaboraEventoUnaVolta('paypal', registrato, async () => {
+    if (evento.event_type === 'CHECKOUT.ORDER.APPROVED') {
+      await catturaPaypal(risorsa.id);
+      return;
+    }
     if (!risorsa.custom_id) {
       return;
     }
