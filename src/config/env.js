@@ -43,6 +43,7 @@ const schema = Joi.object({
 
   UPLOAD_DIR: Joi.string().default('uploads'),
   UPLOAD_MAX_MB: Joi.number().positive().default(5),
+  UPLOAD_VIDEO_MAX_MB: Joi.number().positive().default(20),
 
   SMTP_HOST: facoltativo,
   SMTP_PORT: Joi.number().port().default(587),
@@ -111,6 +112,7 @@ module.exports = Object.freeze({
   upload: {
     cartella: v.UPLOAD_DIR,
     maxByte: Math.round(v.UPLOAD_MAX_MB * 1024 * 1024),
+    maxByteVideo: Math.round(Math.max(v.UPLOAD_VIDEO_MAX_MB, v.UPLOAD_MAX_MB) * 1024 * 1024),
   },
 
   smtp: {

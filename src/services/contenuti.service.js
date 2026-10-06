@@ -6,10 +6,11 @@
 const { sequelize } = require('../models');
 const contenutiRepo = require('../repositories/contenuti.repository');
 const impostazioni = require('./impostazioni.service');
-const { nonTrovato, richiestaNonValida } = require('../utils/errori');
+const { ErroreApp, nonTrovato, richiestaNonValida } = require('../utils/errori');
 const { applicaTraduzioni } = require('../utils/traduzioni');
 const file = require('../utils/file');
 const { CAMPI_TRADUCIBILI } = require('../constants/sistema.constants');
+const { ENTITA_CON_VIDEO } = require('../constants/camere.constants');
 
 // ─────────────────────────────────────
 // Traduzioni (area admin)
@@ -86,6 +87,9 @@ async function aggiungiMedia(
 ) {
   if (!caricato) {
     throw richiestaNonValida('FILE_MANCANTE', 'Allega il file');
+  }
+  if (caricato.mimetype.startsWith('video/') && !ENTITA_CON_VIDEO.includes(entita)) {
+    throw new ErroreApp(415, 'FORMATO_FILE_NON_VALIDO', 'Qui si possono caricare solo immagini');
   }
 
   return await contenutiRepo.creaMedia({
