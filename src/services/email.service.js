@@ -285,7 +285,7 @@ async function invia({ a, modello, lingua = 'it', dati, allegati }) {
       logger.info('Email non inviata (SMTP non configurato)', { a, oggetto, testo });
       return false;
     }
-    await smtp.sendMail({
+    const consegna = await smtp.sendMail({
       from: config.smtp.mittente || config.smtp.utente,
       to: a,
       subject: oggetto,
@@ -295,6 +295,8 @@ async function invia({ a, modello, lingua = 'it', dati, allegati }) {
       // I programmi di posta mostrano il loro pulsante "Annulla iscrizione".
       list: dati?.disiscrizione ? { unsubscribe: dati.disiscrizione } : undefined,
     });
+    // Accettata dal server SMTP: l'esito della consegna lo dice il provider.
+    logger.info('Email inviata', { a, oggetto, id: consegna.messageId });
     return true;
   } catch (err) {
     logger.error('Invio email fallito', { a, modello, errore: err.message });
