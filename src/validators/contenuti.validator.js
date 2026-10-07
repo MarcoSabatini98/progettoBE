@@ -7,6 +7,7 @@ const {
   TIPI_DOCUMENTO_LEGALE,
   TIPI_EVENTO_SPECIALE,
   CAMPI_TRADUCIBILI,
+  PAGINE_SITO,
 } = require('../constants/sistema.constants');
 
 const ordine = Joi.number().integer().min(-32_768).max(32_767);
@@ -18,6 +19,12 @@ const ordine = Joi.number().integer().min(-32_768).max(32_767);
 const schemaTipoDocumentoParam = Joi.object({
   tipo: Joi.string()
     .valid(...TIPI_DOCUMENTO_LEGALE)
+    .required(),
+});
+
+const schemaChiavePaginaParam = Joi.object({
+  chiave: Joi.string()
+    .valid(...PAGINE_SITO)
     .required(),
 });
 
@@ -105,6 +112,33 @@ const schemaAggiornaFaq = Joi.object({
 }).min(1);
 
 // ─────────────────────────────────────
+// Pagine e sezioni
+// ─────────────────────────────────────
+
+// Vuota = nessuna descrizione sotto il titolo.
+const schemaAggiornaPagina = Joi.object({
+  descrizione: Joi.string().trim().max(2_000).allow(null, '').required(),
+});
+
+const campiSezione = {
+  ordine,
+  pubblicata: Joi.boolean(),
+};
+
+const schemaCreaSezione = Joi.object({
+  pagina_id: id.required(),
+  titolo: Joi.string().trim().max(150).required(),
+  testo: Joi.string().trim().max(10_000).required(),
+  ...campiSezione,
+});
+
+const schemaAggiornaSezione = Joi.object({
+  titolo: Joi.string().trim().max(150),
+  testo: Joi.string().trim().max(10_000),
+  ...campiSezione,
+}).min(1);
+
+// ─────────────────────────────────────
 // Documenti legali
 // ─────────────────────────────────────
 
@@ -162,6 +196,7 @@ const schemaAggiornaEvento = Joi.object({
 
 module.exports = {
   schemaTipoDocumentoParam,
+  schemaChiavePaginaParam,
   schemaTraduzioniParam,
   schemaTraduzioni,
   schemaFiltriMedia,
@@ -171,6 +206,9 @@ module.exports = {
   schemaFiltriFaq,
   schemaCreaFaq,
   schemaAggiornaFaq,
+  schemaAggiornaPagina,
+  schemaCreaSezione,
+  schemaAggiornaSezione,
   schemaFiltriDocumentiLegali,
   schemaCreaDocumentoLegale,
   schemaAggiornaDocumentoLegale,

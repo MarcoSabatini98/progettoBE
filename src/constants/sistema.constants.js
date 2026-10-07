@@ -59,7 +59,12 @@ const CAMPI_TRADUCIBILI = Object.freeze({
   pacchetto: Object.freeze(['nome', 'descrizione']),
   promozione: Object.freeze(['nome', 'descrizione']),
   faq: Object.freeze(['domanda', 'risposta']),
+  pagina: Object.freeze(['descrizione']),
+  sezione: Object.freeze(['titolo', 'testo']),
 });
+
+// Pagine del sito con sezioni immagine-testo (tabella pagine, una riga ciascuna).
+const PAGINE_SITO = Object.freeze(['home', 'struttura', 'attivita']);
 
 module.exports = {
   ORIGINE_RETE_LOCALE,
@@ -73,4 +78,5 @@ module.exports = {
   TABELLE_REGISTRO,
   CARTELLE_UPLOAD,
   CAMPI_TRADUCIBILI,
+  PAGINE_SITO,
 };

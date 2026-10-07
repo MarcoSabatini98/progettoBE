@@ -89,12 +89,20 @@ async function tipologiePubbliche(lingua = 'it') {
   return tipologie.map(tipologiaTradotta);
 }
 
+/** Con le sue camere: ognuna ha foto e dotazioni in più per la propria pagina. */
 async function tipologiaPubblica(slug, lingua = 'it') {
   const [tipologia] = await camereRepo.trovaTipologiePubbliche(lingua, { slug });
   if (!tipologia) {
     throw nonTrovato('TIPOLOGIA_NON_TROVATA', 'Tipologia non trovata');
   }
-  return tipologiaTradotta(tipologia);
+  const camere = await camereRepo.trovaCamerePubbliche(tipologia.id, lingua);
+  return {
+    ...tipologiaTradotta(tipologia),
+    camere: camere.map((camera) => ({
+      ...camera.toJSON(),
+      servizi: camera.servizi.map(applicaTraduzioni),
+    })),
+  };
 }
 
 /** dati.servizi = id delle dotazioni incluse. */

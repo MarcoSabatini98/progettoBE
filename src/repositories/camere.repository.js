@@ -53,6 +53,16 @@ const trovaTipologie = async (filtri = {}) => {
 };
 
 // Sito: solo le tipologie attive, con testi e dotazioni nella lingua richiesta.
+// Per il sito: dotazioni attive, tradotte nella lingua richiesta.
+const includeServiziPubblici = (lingua) => ({
+  model: Servizio,
+  as: 'servizi',
+  where: { attivo: true },
+  required: false,
+  through: { attributes: [] },
+  include: [{ model: Traduzione, as: 'traduzioni', where: { lingua }, required: false }],
+});
+
 const trovaTipologiePubbliche = async (lingua, filtri = {}) => {
   const where = { attiva: true };
   if (filtri.slug) {
@@ -62,14 +72,7 @@ const trovaTipologiePubbliche = async (lingua, filtri = {}) => {
   return await TipologiaCamera.findAll({
     where,
     include: [
-      {
-        model: Servizio,
-        as: 'servizi',
-        where: { attivo: true },
-        required: false,
-        through: { attributes: [] },
-        include: [{ model: Traduzione, as: 'traduzioni', where: { lingua }, required: false }],
-      },
+      includeServiziPubblici(lingua),
       { model: Media, as: 'media', separate: true, order: ordineMedia },
       { model: Traduzione, as: 'traduzioni', where: { lingua }, required: false },
     ],
@@ -154,6 +157,19 @@ const trovaCamere = async (filtri = {}) => {
   return await Camera.findAll({
     where,
     include: [includeTipologia],
+    order: [['numero', 'ASC']],
+  });
+};
+
+// Per il sito: le camere di una tipologia ancora in uso, senza note interne né dati operativi.
+const trovaCamerePubbliche = async (tipologiaId, lingua) => {
+  return await Camera.findAll({
+    where: { tipologia_id: tipologiaId, stato: { [Op.ne]: 'fuori_servizio' } },
+    attributes: ['id', 'numero', 'nome', 'piano', 'ospiti_max'],
+    include: [
+      includeServiziPubblici(lingua),
+      { model: Media, as: 'media', separate: true, order: ordineMedia },
+    ],
     order: [['numero', 'ASC']],
   });
 };
@@ -349,6 +365,7 @@ module.exports = {
   eliminaTipologia,
   contaCamereDiTipologia,
   trovaCamere,
+  trovaCamerePubbliche,
   trovaCameraPerId,
   trovaCameraConTipologia,
   bloccaCamera,

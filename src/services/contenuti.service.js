@@ -1,6 +1,6 @@
 // src/services/contenuti.service.js
 //
-// Contenuti del sito: traduzioni, media, FAQ, documenti legali, eventi speciali.
+// Contenuti del sito: traduzioni, media, FAQ, pagine e sezioni, documenti legali, eventi speciali.
 // Il testo italiano sta nella tabella originale, le altre lingue in traduzioni.
 
 const { sequelize } = require('../models');
@@ -204,6 +204,75 @@ async function eliminaFaq(id) {
 }
 
 // ─────────────────────────────────────
+// Pagine del sito e sezioni immagine-testo
+// ─────────────────────────────────────
+
+/** Home, struttura o attività: descrizione, copertina e sezioni pubblicate, tradotte. */
+async function paginaPubblica(chiave, lingua = 'it') {
+  const pagina = await contenutiRepo.trovaPaginaPubblica(chiave, lingua);
+  if (!pagina) {
+    throw nonTrovato('PAGINA_NON_TROVATA', 'Pagina non trovata');
+  }
+  const tradotta = applicaTraduzioni(pagina);
+  tradotta.sezioni = tradotta.sezioni.map(applicaTraduzioni);
+  return tradotta;
+}
+
+async function elencoPagine() {
+  return await contenutiRepo.trovaPagine();
+}
+
+async function aggiornaPagina(id, dati) {
+  const pagina = await contenutiRepo.aggiornaPagina(id, { descrizione: dati.descrizione || null });
+  if (!pagina) {
+    throw nonTrovato('PAGINA_NON_TROVATA', 'Pagina non trovata');
+  }
+  return pagina;
+}
+
+async function dettaglioSezione(id) {
+  const sezione = await contenutiRepo.trovaSezionePerId(id);
+  if (!sezione) {
+    throw nonTrovato('SEZIONE_NON_TROVATA', 'Sezione non trovata');
+  }
+  return sezione;
+}
+
+async function creaSezione(dati) {
+  if (!(await contenutiRepo.trovaPaginaPerId(dati.pagina_id))) {
+    throw nonTrovato('PAGINA_NON_TROVATA', 'Pagina non trovata');
+  }
+  const sezione = await contenutiRepo.creaSezione({
+    pagina_id: dati.pagina_id,
+    titolo: dati.titolo,
+    testo: dati.testo,
+    ordine: dati.ordine,
+    pubblicata: dati.pubblicata,
+  });
+  return dettaglioSezione(sezione.id);
+}
+
+async function aggiornaSezione(id, dati) {
+  const sezione = await contenutiRepo.aggiornaSezione(id, {
+    titolo: dati.titolo,
+    testo: dati.testo,
+    ordine: dati.ordine,
+    pubblicata: dati.pubblicata,
+  });
+  if (!sezione) {
+    throw nonTrovato('SEZIONE_NON_TROVATA', 'Sezione non trovata');
+  }
+  return dettaglioSezione(id);
+}
+
+/** La sezione eliminata si porta via immagine e traduzioni. */
+async function eliminaSezione(id) {
+  await dettaglioSezione(id);
+  await contenutiRepo.eliminaSezione(id);
+  await eliminaContenutiDi('sezione', id);
+}
+
+// ─────────────────────────────────────
 // Documenti legali (privacy, termini, cookie)
 // Una versione pubblicata non si tocca più: se ne crea una nuova.
 // ─────────────────────────────────────
@@ -343,6 +412,13 @@ module.exports = {
   creaFaq,
   aggiornaFaq,
   eliminaFaq,
+  paginaPubblica,
+  elencoPagine,
+  aggiornaPagina,
+  dettaglioSezione,
+  creaSezione,
+  aggiornaSezione,
+  eliminaSezione,
   elencoDocumentiLegali,
   dettaglioDocumentoLegale,
   documentoLegaleVigente,

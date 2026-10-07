@@ -30,6 +30,8 @@ const Traduzione = require('./Traduzione');
 const DocumentoLegale = require('./DocumentoLegale');
 const Media = require('./Media');
 const Faq = require('./Faq');
+const Pagina = require('./Pagina');
+const Sezione = require('./Sezione');
 const EventoSpeciale = require('./EventoSpeciale');
 
 // Camere e servizi
@@ -259,6 +261,8 @@ Impostazione.belongsTo(Utente, { foreignKey: 'aggiornato_da', as: 'modificatore'
 DocumentoLegale.belongsTo(Utente, { foreignKey: 'creato_da', as: 'autore' });
 Faq.belongsTo(Utente, { foreignKey: 'creato_da', as: 'autore' });
 Faq.belongsTo(Utente, { foreignKey: 'aggiornato_da', as: 'modificatore' });
+Pagina.hasMany(Sezione, { foreignKey: 'pagina_id', as: 'sezioni' });
+Sezione.belongsTo(Pagina, { foreignKey: 'pagina_id', as: 'pagina' });
 
 // Media e Traduzione sono polimorfiche (entita + entita_id): ogni modello
 // vede solo le righe della propria "entita". Nel DB non c'è una FK vera,
@@ -284,6 +288,18 @@ Servizio.hasMany(Media, {
 Pacchetto.hasMany(Media, {
   foreignKey: 'entita_id',
   scope: { entita: 'pacchetto' },
+  as: 'media',
+  constraints: false,
+});
+Pagina.hasMany(Media, {
+  foreignKey: 'entita_id',
+  scope: { entita: 'pagina' },
+  as: 'media',
+  constraints: false,
+});
+Sezione.hasMany(Media, {
+  foreignKey: 'entita_id',
+  scope: { entita: 'sezione' },
   as: 'media',
   constraints: false,
 });
@@ -315,6 +331,18 @@ Promozione.hasMany(Traduzione, {
 Faq.hasMany(Traduzione, {
   foreignKey: 'entita_id',
   scope: { entita: 'faq' },
+  as: 'traduzioni',
+  constraints: false,
+});
+Pagina.hasMany(Traduzione, {
+  foreignKey: 'entita_id',
+  scope: { entita: 'pagina' },
+  as: 'traduzioni',
+  constraints: false,
+});
+Sezione.hasMany(Traduzione, {
+  foreignKey: 'entita_id',
+  scope: { entita: 'sezione' },
   as: 'traduzioni',
   constraints: false,
 });
@@ -573,6 +601,8 @@ module.exports = {
   DocumentoLegale,
   Media,
   Faq,
+  Pagina,
+  Sezione,
   EventoSpeciale,
 
   // camere

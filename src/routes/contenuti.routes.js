@@ -11,6 +11,7 @@ const { schemaIdParam } = require('../validators/comune.validator');
 const { schemaLingua } = require('../validators/camere.validator');
 const {
   schemaTipoDocumentoParam,
+  schemaChiavePaginaParam,
   schemaTraduzioniParam,
   schemaTraduzioni,
   schemaFiltriMedia,
@@ -20,6 +21,9 @@ const {
   schemaFiltriFaq,
   schemaCreaFaq,
   schemaAggiornaFaq,
+  schemaAggiornaPagina,
+  schemaCreaSezione,
+  schemaAggiornaSezione,
   schemaFiltriDocumentiLegali,
   schemaCreaDocumentoLegale,
   schemaAggiornaDocumentoLegale,
@@ -38,6 +42,11 @@ const faq = [richiediAccesso, richiediPermesso(PERMESSI.FAQ_GESTISCI)];
 // ─────────────────────────────────────
 
 router.get('/faq/pubbliche', valida({ query: schemaLingua }), controller.faqPubbliche);
+router.get(
+  '/pagine/:chiave/pubblica',
+  valida({ params: schemaChiavePaginaParam, query: schemaLingua }),
+  controller.paginaPubblica,
+);
 router.get(
   '/documenti-legali/vigente/:tipo',
   valida({ params: schemaTipoDocumentoParam, query: schemaLingua }),
@@ -103,6 +112,26 @@ router.patch(
   controller.aggiornaFaq,
 );
 router.delete('/faq/:id', faq, idParam, controller.eliminaFaq);
+
+// ─────────────────────────────────────
+// Pagine e sezioni
+// ─────────────────────────────────────
+
+router.get('/pagine', gestisci, controller.elencoPagine);
+router.patch(
+  '/pagine/:id',
+  gestisci,
+  valida({ params: schemaIdParam, body: schemaAggiornaPagina }),
+  controller.aggiornaPagina,
+);
+router.post('/sezioni', gestisci, valida({ body: schemaCreaSezione }), controller.creaSezione);
+router.patch(
+  '/sezioni/:id',
+  gestisci,
+  valida({ params: schemaIdParam, body: schemaAggiornaSezione }),
+  controller.aggiornaSezione,
+);
+router.delete('/sezioni/:id', gestisci, idParam, controller.eliminaSezione);
 
 // ─────────────────────────────────────
 // Documenti legali

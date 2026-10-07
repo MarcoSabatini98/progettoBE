@@ -1,9 +1,18 @@
 // src/repositories/contenuti.repository.js
 //
-// Contenuti del sito: traduzioni, media, FAQ, documenti legali, eventi speciali.
+// Contenuti del sito: traduzioni, media, FAQ, pagine e sezioni, documenti legali, eventi speciali.
 
 const { Op } = require('sequelize');
-const { Traduzione, Media, Faq, DocumentoLegale, EventoSpeciale, Utente } = require('../models');
+const {
+  Traduzione,
+  Media,
+  Faq,
+  Pagina,
+  Sezione,
+  DocumentoLegale,
+  EventoSpeciale,
+  Utente,
+} = require('../models');
 
 const includeAutore = { model: Utente, as: 'autore', attributes: ['id', 'nome', 'cognome'] };
 
@@ -35,13 +44,15 @@ const eliminaTraduzioniDi = async (entita, entitaId, transaction = null) => {
 // ─────────────────────────────────────
 // Media (immagini di camere, tipologie, servizi, pacchetti, sito)
 // ─────────────────────────────────────
+const ordineMedia = [
+  ['ordine', 'ASC'],
+  ['id', 'ASC'],
+];
+
 const trovaMedia = async (entita, entitaId = null) => {
   return await Media.findAll({
     where: { entita, entita_id: entitaId },
-    order: [
-      ['ordine', 'ASC'],
-      ['id', 'ASC'],
-    ],
+    order: ordineMedia,
   });
 };
 
@@ -118,6 +129,92 @@ const aggiornaFaq = async (id, dati) => {
 
 const eliminaFaq = async (id, transaction = null) => {
   return await Faq.destroy({ where: { id }, transaction });
+};
+
+// ─────────────────────────────────────
+// Pagine del sito e loro sezioni immagine-testo
+// ─────────────────────────────────────
+const ordineSezioni = [
+  ['ordine', 'ASC'],
+  ['id', 'ASC'],
+];
+// Nuovo a ogni uso: Sequelize scrive nell'include lo scope del primo modello che lo usa,
+// e un oggetto condiviso fra pagina e sezione cercherebbe le foto della pagina.
+const includeMedia = () => ({ model: Media, as: 'media', separate: true, order: ordineMedia });
+const traduzioniIn = (lingua) => ({
+  model: Traduzione,
+  as: 'traduzioni',
+  where: { lingua },
+  required: false,
+});
+
+// Per il sito: la pagina con le sole sezioni pubblicate, nella lingua richiesta.
+const trovaPaginaPubblica = async (chiave, lingua) => {
+  return await Pagina.findOne({
+    where: { chiave },
+    include: [
+      includeMedia(),
+      traduzioniIn(lingua),
+      {
+        model: Sezione,
+        as: 'sezioni',
+        where: { pubblicata: true },
+        required: false,
+        separate: true,
+        order: ordineSezioni,
+        include: [includeMedia(), traduzioniIn(lingua)],
+      },
+    ],
+  });
+};
+
+// Per il gestionale: tutte le pagine con tutte le sezioni, anche quelle nascoste.
+const trovaPagine = async () => {
+  return await Pagina.findAll({
+    include: [
+      includeMedia(),
+      {
+        model: Sezione,
+        as: 'sezioni',
+        separate: true,
+        order: ordineSezioni,
+        include: [includeMedia()],
+      },
+    ],
+    order: [['id', 'ASC']],
+  });
+};
+
+const trovaPaginaPerId = async (id) => {
+  return await Pagina.findByPk(id);
+};
+
+const aggiornaPagina = async (id, dati) => {
+  const pagina = await Pagina.findByPk(id);
+  if (!pagina) {
+    return null;
+  }
+  return await pagina.update(dati);
+};
+
+const trovaSezionePerId = async (id) => {
+  return await Sezione.findByPk(id, { include: [includeMedia()] });
+};
+
+const creaSezione = async (dati) => {
+  return await Sezione.create(dati);
+};
+
+const aggiornaSezione = async (id, dati) => {
+  const sezione = await Sezione.findByPk(id);
+  if (!sezione) {
+    return null;
+  }
+  return await sezione.update(dati);
+};
+
+const eliminaSezione = async (id) => {
+  return await Sezione.destroy({ where: { id } });
 };
 
 // ─────────────────────────────────────
@@ -225,6 +322,14 @@ module.exports = {
   creaFaq,
   aggiornaFaq,
   eliminaFaq,
+  trovaPaginaPubblica,
+  trovaPagine,
+  trovaPaginaPerId,
+  aggiornaPagina,
+  trovaSezionePerId,
+  creaSezione,
+  aggiornaSezione,
+  eliminaSezione,
   trovaDocumentiLegali,
   trovaDocumentoLegalePerId,
   trovaDocumentoLegaleVigente,

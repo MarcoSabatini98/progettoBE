@@ -80,8 +80,11 @@ function giorno(offset) {
   return aggiungiGiorni(oggi(), offset);
 }
 
-/** Copia le foto in uploads/media come farebbe un caricamento dal gestionale. */
-async function aggiungiFoto(tipologia, foto) {
+/**
+ * Copia le foto in uploads/media come farebbe un caricamento dal gestionale.
+ * @param {{ entita: string, entitaId: number, testoAlternativo: string }} destinazione
+ */
+async function aggiungiFoto(destinazione, foto) {
   for (const [ordine, nome] of foto.entries()) {
     const contenuto = await fs.readFile(path.join(CARTELLA_FOTO, nome));
     const relativo = await file.salva(
@@ -89,12 +92,7 @@ async function aggiungiFoto(tipologia, foto) {
       contenuto,
     );
     await contenutiService.aggiungiMedia(
-      {
-        entita: 'tipologia_camera',
-        entitaId: tipologia.id,
-        testoAlternativo: `Camera ${tipologia.nome.toLowerCase()}`,
-        ordine,
-      },
+      { ...destinazione, ordine },
       { path: file.percorsoAssoluto(relativo), mimetype: 'image/jpeg', size: contenuto.length },
     );
   }
@@ -207,25 +205,47 @@ async function creaCatalogo(ctx) {
       descrizione: `Camera ${tipologia.nome.toLowerCase()} con arredi moderni.`,
       servizi: [...base.map(dotazione), ...(tipologia.servizi ?? [])],
     });
-    await aggiungiFoto(tipologie[tipologia.nome], foto);
+    const { id, nome } = tipologie[tipologia.nome];
+    await aggiungiFoto(
+      {
+        entita: 'tipologia_camera',
+        entitaId: id,
+        testoAlternativo: `Camera ${nome.toLowerCase()}`,
+      },
+      foto,
+    );
   }
 
+  // Le camere senza foto proprie mostrano quelle della tipologia; con più foto, il sito le fa sfogliare.
   const camere = {};
-  for (const [numero, tipologia, piano] of [
+  for (const [numero, tipologia, piano, { foto = [], servizi = [] } = {}] of [
     ['101', 'Singola', 1],
-    ['102', 'Doppia', 1],
-    ['103', 'Doppia', 1],
+    ['102', 'Doppia', 1, { foto: ['doppia-2.jpg'] }],
+    [
+      '103',
+      'Doppia',
+      1,
+      {
+        foto: ['doppia-1.jpg', 'doppia-2.jpg', 'suite-2.jpg', 'tripla-2.jpg'],
+        servizi: ['Balcone'],
+      },
+    ],
     ['104', 'Tripla', 1],
-    ['201', 'Doppia', 2],
-    ['202', 'Tripla', 2],
+    ['201', 'Doppia', 2, { servizi: ['Vista mare'] }],
+    ['202', 'Tripla', 2, { foto: ['tripla-2.jpg', 'tripla-1.jpg'], servizi: ['Balcone'] }],
     ['203', 'Suite', 2],
-    ['204', 'Suite', 2],
+    ['204', 'Suite', 2, { foto: ['suite-2.jpg', 'suite-1.jpg', 'doppia-1.jpg'] }],
   ]) {
     camere[numero] = await camereService.creaCamera({
       numero,
       tipologia_id: tipologie[tipologia].id,
       piano,
+      servizi: servizi.map(dotazione),
     });
+    await aggiungiFoto(
+      { entita: 'camera', entitaId: camere[numero].id, testoAlternativo: `Camera ${numero}` },
+      foto,
+    );
   }
 
   const nonRimborsabile = await tariffeService.creaPiano({
@@ -330,7 +350,89 @@ async function creaCatalogo(ctx) {
   return { extra, camere, nonRimborsabile, romantico };
 }
 
+// Pagine del sito: descrizione della copertina e sezioni immagine-testo [titolo, testo, foto].
+const PAGINE_PROVA = {
+  home: {
+    sezioni: [
+      [
+        'Colazione in terrazza',
+        'Ogni mattina dolci fatti in casa, frutta di stagione e caffè, con vista sul mare.',
+        'suite-2.jpg',
+      ],
+      [
+        'A due passi dal centro',
+        'Il centro storico, la spiaggia e il porto si raggiungono a piedi in pochi minuti.',
+        'doppia-2.jpg',
+      ],
+    ],
+  },
+  struttura: {
+    descrizione: 'Una casa di mare rinnovata, con il giardino e la terrazza sui tetti.',
+    copertina: 'suite-1.jpg',
+    sezioni: [
+      [
+        'Le camere',
+        'Otto camere luminose, ognuna diversa, con bagno privato e aria condizionata.',
+        'doppia-1.jpg',
+      ],
+      [
+        'Il giardino',
+        'Ulivi, buganvillee e un angolo all’ombra per leggere nel pomeriggio.',
+        'tripla-1.jpg',
+      ],
+      [
+        'La terrazza',
+        'Al tramonto la terrazza è aperta a tutti gli ospiti: si vede tutta la baia.',
+        'tripla-2.jpg',
+      ],
+    ],
+  },
+  attivita: {
+    descrizione: 'Mare, sentieri e sapori: le esperienze da vivere nei dintorni.',
+    copertina: 'singola-1.jpg',
+    sezioni: [
+      [
+        'Escursioni in barca',
+        'Le calette della costa si raggiungono solo dal mare: organizziamo noi la gita.',
+        'suite-2.jpg',
+      ],
+      [
+        'Degustazioni',
+        'Vini e formaggi del territorio nelle cantine della zona, su prenotazione.',
+        'doppia-2.jpg',
+      ],
+    ],
+  },
+};
+
+async function creaPagine() {
+  for (const pagina of await contenutiService.elencoPagine()) {
+    const { descrizione, copertina, sezioni } = PAGINE_PROVA[pagina.chiave];
+    if (descrizione) {
+      await contenutiService.aggiornaPagina(pagina.id, { descrizione });
+    }
+    if (copertina) {
+      await aggiungiFoto({ entita: 'pagina', entitaId: pagina.id, testoAlternativo: descrizione }, [
+        copertina,
+      ]);
+    }
+    for (const [ordine, [titolo, testo, foto]] of sezioni.entries()) {
+      const sezione = await contenutiService.creaSezione({
+        pagina_id: pagina.id,
+        titolo,
+        testo,
+        ordine,
+      });
+      await aggiungiFoto({ entita: 'sezione', entitaId: sezione.id, testoAlternativo: titolo }, [
+        foto,
+      ]);
+    }
+  }
+}
+
 async function creaContenuti(ctx, camere) {
+  await creaPagine();
+
   for (const [ordine, faq] of [
     ['Il check-in è dalle 15:00, il check-out entro le 11:00.', 'A che ora è il check-in?'],
     ['Sì, a 10 euro a notte: va richiesto in fase di prenotazione.', "C'è un parcheggio?"],

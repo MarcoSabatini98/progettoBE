@@ -285,7 +285,7 @@ CREATE TABLE camere_servizi (
 -- home e home_scuro: sfondo della home col tema chiaro e col tema scuro.
 CREATE TABLE media (
   id                  INT UNSIGNED  NOT NULL AUTO_INCREMENT,
-  entita              ENUM('camera','tipologia_camera','servizio','pacchetto','struttura','home','home_scuro','logo','varie') NOT NULL,
+  entita              ENUM('camera','tipologia_camera','servizio','pacchetto','struttura','home','home_scuro','logo','pagina','sezione','varie') NOT NULL,
   entita_id           INT UNSIGNED  NULL,
   percorso            VARCHAR(255)  NOT NULL,      -- relativo alla cartella uploads
   tipo_mime           VARCHAR(50)   NOT NULL,
@@ -1163,6 +1163,33 @@ CREATE TABLE faq (
   FOREIGN KEY (aggiornato_da) REFERENCES utenti(id) ON DELETE SET NULL
 );
 
+-- Pagine del sito con contenuti scritti dalla struttura: home, struttura, attività.
+-- La foto di copertina è nei media (entita 'pagina'), le altre lingue in traduzioni.
+CREATE TABLE pagine (
+  id              INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  chiave          ENUM('home','struttura','attivita') NOT NULL,
+  descrizione     TEXT          NULL,          -- sotto il titolo, nella copertina
+  aggiornato_il   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_pagine_chiave (chiave)
+);
+
+-- Sezioni immagine-testo di una pagina, a lati alterni sul sito.
+-- L'immagine è nei media (entita 'sezione'), le altre lingue in traduzioni.
+CREATE TABLE sezioni (
+  id              INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  pagina_id       INT UNSIGNED  NOT NULL,
+  titolo          VARCHAR(150)  NOT NULL,
+  testo           TEXT          NOT NULL,
+  ordine          SMALLINT      NOT NULL DEFAULT 0,
+  pubblicata      BOOLEAN       NOT NULL DEFAULT TRUE,
+  creato_il       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  aggiornato_il   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_sezioni_pagina (pagina_id, pubblicata, ordine),
+  FOREIGN KEY (pagina_id) REFERENCES pagine(id) ON DELETE CASCADE
+);
+
 
 -- =============================================================================
 -- 13. NOTIFICHE, EVENTI SPECIALI, REGISTRO ATTIVITÀ
@@ -1950,3 +1977,6 @@ INSERT INTO impostazioni (chiave, valore, tipo, gruppo, descrizione, pubblica) V
   -- aspetto (il logo è la prima immagine dei media con entita 'logo')
   ('aspetto_colore',              '#5e6b3a',   'testo',    'aspetto',       'Colore principale del sito (esadecimale)', TRUE),
   ('aspetto_tema',                'sistema',   'testo',    'aspetto',       'Tema predefinito: sistema, chiaro o scuro (ognuno può cambiarlo sul suo dispositivo)', TRUE);
+
+-- Le pagine del sito con contenuti propri: le loro sezioni si scrivono dal gestionale.
+INSERT INTO pagine (chiave) VALUES ('home'), ('struttura'), ('attivita');
