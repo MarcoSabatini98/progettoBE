@@ -21,7 +21,11 @@ const {
 } = require('../models');
 
 const includeAutore = { model: Utente, as: 'autore', attributes: ['id', 'nome', 'cognome'] };
-const includeTipologia = { model: TipologiaCamera, as: 'tipologia', attributes: ['id', 'nome'] };
+const includeTipologia = {
+  model: TipologiaCamera,
+  as: 'tipologia',
+  attributes: ['id', 'nome', 'slug'],
+};
 
 // Promozioni prenotabili nel giorno indicato (finestra prenotabile_dal / _al).
 const prenotabiliIl = (giorno) => [
