@@ -95,7 +95,7 @@ async function cerca({
 
 /**
  * Tiene da parte una camera per la sessione di pagamento (un blocco per sessione).
- * Senza cameraId sceglie la prima camera libera della tipologia.
+ * Senza cameraId sceglie la prima camera libera della tipologia; con cameraId deve essere libera.
  * @returns {Promise<{ sessione: string, camera_id: number, scade_il: Date }>}
  */
 async function blocca({
@@ -112,18 +112,20 @@ async function blocca({
   const minuti = await impostazioni.leggi('blocco_checkout_minuti', 15);
 
   return await sequelize.transaction(async (transaction) => {
-    let idCamera = cameraId;
-    if (!idCamera) {
-      const libere = await camereLibere(arrivo, partenza, ospiti, sessione, transaction);
-      const scelta = libere.find((camera) => camera.tipologia_id === Number(tipologiaId));
-      if (!scelta) {
-        throw conflitto(
-          'CAMERA_NON_DISPONIBILE',
-          'Non ci sono più camere libere di questa tipologia per le date scelte',
-        );
-      }
-      idCamera = scelta.camera_id;
+    // anche la camera scelta dal sito deve essere libera per quelle date e quegli ospiti
+    const libere = await camereLibere(arrivo, partenza, ospiti, sessione, transaction);
+    const scelta = cameraId
+      ? libere.find((camera) => camera.camera_id === Number(cameraId))
+      : libere.find((camera) => camera.tipologia_id === Number(tipologiaId));
+    if (!scelta) {
+      throw conflitto(
+        'CAMERA_NON_DISPONIBILE',
+        cameraId
+          ? 'La camera scelta non è libera per le date indicate'
+          : 'Non ci sono più camere libere di questa tipologia per le date scelte',
+      );
     }
+    const idCamera = scelta.camera_id;
 
     // la riga della camera fa da lucchetto: due richieste simultanee si mettono in fila
     await camereRepo.bloccaCamera(idCamera, transaction);
