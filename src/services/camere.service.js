@@ -237,14 +237,22 @@ async function statoCamere() {
   return await camereRepo.trovaStatoCamere();
 }
 
-/** Planning: camere con prenotazioni e chiusure tra dal (incluso) e al (escluso). */
-async function planning(dal, al) {
+// Giorni massimi di un periodo chiesto al planning o al calendario del sito (3 mesi).
+const GIORNI_PERIODO_MAX = 92;
+
+/** Periodo [dal, al) valido e non più lungo di 3 mesi, altrimenti errore. */
+function controllaPeriodo(dal, al) {
   if (!dal || !al || al <= dal) {
     throw richiestaNonValida('DATE_NON_VALIDE', 'Indica un periodo valido');
   }
-  if (contaNotti(dal, al) > 92) {
-    throw richiestaNonValida('PERIODO_TROPPO_LUNGO', 'Il planning copre al massimo 3 mesi');
+  if (contaNotti(dal, al) > GIORNI_PERIODO_MAX) {
+    throw richiestaNonValida('PERIODO_TROPPO_LUNGO', 'Il periodo copre al massimo 3 mesi');
   }
+}
+
+/** Planning: camere con prenotazioni e chiusure tra dal (incluso) e al (escluso). */
+async function planning(dal, al) {
+  controllaPeriodo(dal, al);
   return await camereRepo.trovaPlanning(dal, al);
 }
 
@@ -304,6 +312,7 @@ module.exports = {
   eliminaCamera,
   rigeneraTokenIcal,
   statoCamere,
+  controllaPeriodo,
   planning,
   elencoServizi,
   dettaglioServizio,

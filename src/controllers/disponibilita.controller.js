@@ -23,6 +23,17 @@ const cerca = async (req, res) => {
   return inviaSuccesso(res, 200, risultati);
 };
 
+const occupazione = async (req, res) => {
+  const risultato = await disponibilitaService.occupazione({
+    dal: req.query.dal,
+    al: req.query.al,
+    cameraId: req.query.camera_id,
+    tipologiaId: req.query.tipologia_id,
+    sessione: req.query.sessione,
+  });
+  return inviaSuccesso(res, 200, risultato);
+};
+
 const blocca = async (req, res) => {
   const blocco = await disponibilitaService.blocca({
     sessione: req.body.sessione ?? uuid(),
@@ -44,6 +55,7 @@ const rilascia = async (req, res) => {
 
 module.exports = {
   cerca,
+  occupazione,
   blocca,
   rilascia,
 };
