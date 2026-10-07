@@ -50,6 +50,11 @@ const pacchettiPubblici = async (req, res) => {
   return inviaSuccesso(res, 200, pacchetti);
 };
 
+const condizioniSoggiorno = async (req, res) => {
+  const condizioni = await tariffeService.condizioniSoggiorno();
+  return inviaSuccesso(res, 200, condizioni);
+};
+
 // ─────────────────────────────────────
 // Piani tariffari
 // ─────────────────────────────────────
@@ -229,6 +234,7 @@ module.exports = {
   verificaCodiceSconto,
   promozioniPubbliche,
   pacchettiPubblici,
+  condizioniSoggiorno,
   elencoPiani,
   dettaglioPiano,
   creaPiano,

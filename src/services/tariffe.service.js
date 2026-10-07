@@ -336,6 +336,12 @@ async function elencoPiani(filtri) {
   return await tariffeRepo.trovaPiani(filtri);
 }
 
+/** Sito, pagina della camera: i piani attivi con le loro cancellazioni e la tassa in vigore oggi. */
+async function condizioniSoggiorno() {
+  const [piani, tassa] = await Promise.all([elencoPiani({ attivo: true }), tassaInVigore(oggi())]);
+  return { piani, tassa };
+}
+
 async function dettaglioPiano(id) {
   const piano = await tariffeRepo.trovaPianoPerId(id);
   if (!piano) {
@@ -640,6 +646,7 @@ module.exports = {
   codiceValido,
   tassaInVigore,
   elencoPiani,
+  condizioniSoggiorno,
   dettaglioPiano,
   creaPiano,
   aggiornaPiano,

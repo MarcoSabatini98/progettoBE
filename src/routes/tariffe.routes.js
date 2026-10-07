@@ -63,6 +63,7 @@ router.get(
   controller.promozioniPubbliche,
 );
 router.get('/pacchetti/pubblici', valida({ query: schemaLingua }), controller.pacchettiPubblici);
+router.get('/soggiorno', controller.condizioniSoggiorno);
 
 // ─────────────────────────────────────
 // Piani tariffari

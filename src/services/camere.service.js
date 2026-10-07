@@ -35,6 +35,7 @@ function datiCamera(dati) {
     piano: dati.piano,
     ospiti_max: dati.ospiti_max,
     stato: dati.stato,
+    descrizione: dati.descrizione,
     note: dati.note,
   };
 }
@@ -89,7 +90,7 @@ async function tipologiePubbliche(lingua = 'it') {
   return tipologie.map(tipologiaTradotta);
 }
 
-/** Con le sue camere: ognuna ha foto e dotazioni in più per la propria pagina. */
+/** Con le sue camere: ognuna con le sue foto. Le dotazioni sono quelle della tipologia. */
 async function tipologiaPubblica(slug, lingua = 'it') {
   const [tipologia] = await camereRepo.trovaTipologiePubbliche(lingua, { slug });
   if (!tipologia) {
@@ -98,10 +99,7 @@ async function tipologiaPubblica(slug, lingua = 'it') {
   const camere = await camereRepo.trovaCamerePubbliche(tipologia.id, lingua);
   return {
     ...tipologiaTradotta(tipologia),
-    camere: camere.map((camera) => ({
-      ...camera.toJSON(),
-      servizi: camera.servizi.map(applicaTraduzioni),
-    })),
+    camere: camere.map(applicaTraduzioni),
   };
 }
 
@@ -167,19 +165,13 @@ async function dettaglioCamera(id) {
   return camera;
 }
 
-/** dati.servizi = dotazioni in più rispetto a quelle della tipologia. */
+/** Le dotazioni non si scelgono qui: la camera ha quelle della sua tipologia. */
 async function creaCamera(dati) {
-  const id = await sequelize.transaction(async (transaction) => {
-    const camera = await camereRepo.creaCamera(
-      { ...datiCamera(dati), token_ical: tokenCasuale(48) },
-      transaction,
-    );
-    if (dati.servizi) {
-      await camereRepo.impostaServiziCamera(camera.id, dati.servizi, transaction);
-    }
-    return camera.id;
+  const camera = await camereRepo.creaCamera({
+    ...datiCamera(dati),
+    token_ical: tokenCasuale(48),
   });
-  return dettaglioCamera(id);
+  return dettaglioCamera(camera.id);
 }
 
 /**
@@ -208,15 +200,10 @@ async function aggiornaCamera(id, dati) {
     await controllaCambioTipologia(id, dati.tipologia_id);
   }
 
-  await sequelize.transaction(async (transaction) => {
-    const camera = await camereRepo.aggiornaCamera(id, datiCamera(dati), transaction);
-    if (!camera) {
-      throw nonTrovato('CAMERA_NON_TROVATA', 'Camera non trovata');
-    }
-    if (dati.servizi) {
-      await camereRepo.impostaServiziCamera(id, dati.servizi, transaction);
-    }
-  });
+  const camera = await camereRepo.aggiornaCamera(id, datiCamera(dati));
+  if (!camera) {
+    throw nonTrovato('CAMERA_NON_TROVATA', 'Camera non trovata');
+  }
   return dettaglioCamera(id);
 }
 

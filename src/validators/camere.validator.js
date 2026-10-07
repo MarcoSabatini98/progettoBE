@@ -68,8 +68,9 @@ const campiCamera = {
   // se vuoto vale quello della tipologia
   ospiti_max: Joi.number().integer().min(1).max(127).allow(null),
   stato: Joi.string().valid(...STATI_CAMERA),
+  // vuota = sul sito quella della tipologia
+  descrizione: Joi.string().trim().max(2000).allow(null, ''),
   note: Joi.string().max(5000).allow(null, ''),
-  servizi: idServizi,
 };
 
 const schemaFiltriCamere = Joi.object({

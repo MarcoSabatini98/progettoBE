@@ -16,21 +16,25 @@ const camere = require('../../../src/services/camere.service');
 
 const record = (dati) => ({ ...dati, toJSON: () => dati });
 
-test('la tipologia del sito porta le sue camere, con le dotazioni tradotte', async () => {
-  camereRepo.trovaTipologiePubbliche.mockResolvedValue([
-    record({ id: 2, nome: 'Doppia', servizi: [], traduzioni: [] }),
-  ]);
+test('la tipologia del sito porta le sue camere e le sue dotazioni, tutte tradotte', async () => {
   const terrazzo = { id: 9, nome: 'Terrazzo', traduzioni: [{ campo: 'nome', testo: 'Terrace' }] };
+  camereRepo.trovaTipologiePubbliche.mockResolvedValue([
+    record({ id: 2, nome: 'Doppia', servizi: [terrazzo], traduzioni: [] }),
+  ]);
   camereRepo.trovaCamerePubbliche.mockResolvedValue([
-    record({ id: 5, numero: '102', servizi: [terrazzo] }),
+    record({
+      id: 5,
+      numero: '102',
+      descrizione: 'Vista mare',
+      traduzioni: [{ campo: 'descrizione', testo: 'Sea view' }],
+    }),
   ]);
 
   const tipologia = await camere.tipologiaPubblica('doppia', 'en');
 
   expect(camereRepo.trovaCamerePubbliche).toHaveBeenCalledWith(2, 'en');
-  expect(tipologia.camere).toEqual([
-    { id: 5, numero: '102', servizi: [{ id: 9, nome: 'Terrace' }] },
-  ]);
+  expect(tipologia.servizi).toEqual([{ id: 9, nome: 'Terrace' }]);
+  expect(tipologia.camere).toEqual([{ id: 5, numero: '102', descrizione: 'Sea view' }]);
 });
 
 test('tipologia inesistente o non attiva: non trovata', async () => {

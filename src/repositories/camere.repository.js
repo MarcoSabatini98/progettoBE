@@ -165,10 +165,10 @@ const trovaCamere = async (filtri = {}) => {
 const trovaCamerePubbliche = async (tipologiaId, lingua) => {
   return await Camera.findAll({
     where: { tipologia_id: tipologiaId, stato: { [Op.ne]: 'fuori_servizio' } },
-    attributes: ['id', 'numero', 'nome', 'piano', 'ospiti_max'],
+    attributes: ['id', 'numero', 'nome', 'piano', 'ospiti_max', 'descrizione'],
     include: [
-      includeServiziPubblici(lingua),
       { model: Media, as: 'media', separate: true, order: ordineMedia },
+      { model: Traduzione, as: 'traduzioni', where: { lingua }, required: false },
     ],
     order: [['numero', 'ASC']],
   });
@@ -176,11 +176,7 @@ const trovaCamerePubbliche = async (tipologiaId, lingua) => {
 
 const trovaCameraPerId = async (id, transaction = null) => {
   return await Camera.findByPk(id, {
-    include: [
-      includeTipologia,
-      { model: Servizio, as: 'servizi', through: { attributes: [] } },
-      { model: Media, as: 'media', separate: true, order: ordineMedia },
-    ],
+    include: [includeTipologia, { model: Media, as: 'media', separate: true, order: ordineMedia }],
     transaction,
   });
 };
@@ -216,12 +212,6 @@ const aggiornaCamera = async (id, dati, transaction = null) => {
     return null;
   }
   return await camera.update(dati, { transaction });
-};
-
-// Dotazioni in più della singola camera (oltre a quelle della tipologia).
-const impostaServiziCamera = async (id, servizioIds, transaction = null) => {
-  const camera = await Camera.findByPk(id, { transaction });
-  return await camera.setServizi(servizioIds, { transaction });
 };
 
 // Soft delete (paranoid).
@@ -372,7 +362,6 @@ module.exports = {
   trovaCameraPerTokenIcal,
   creaCamera,
   aggiornaCamera,
-  impostaServiziCamera,
   eliminaCamera,
   contaPrenotazioniFuture,
   trovaStatoCamere,

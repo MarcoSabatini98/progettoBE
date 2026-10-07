@@ -223,7 +223,10 @@ async function elencoPagine() {
 }
 
 async function aggiornaPagina(id, dati) {
-  const pagina = await contenutiRepo.aggiornaPagina(id, { descrizione: dati.descrizione || null });
+  const pagina = await contenutiRepo.aggiornaPagina(id, {
+    descrizione: dati.descrizione || null,
+    testo: dati.testo || null,
+  });
   if (!pagina) {
     throw nonTrovato('PAGINA_NON_TROVATA', 'Pagina non trovata');
   }

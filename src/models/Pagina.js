@@ -1,5 +1,5 @@
-// Pagina del sito con contenuti propri (home, struttura, attività):
-// descrizione della copertina e sezioni immagine-testo.
+// Pagina del sito con contenuti propri (home, struttura, attività, camere):
+// descrizione della copertina, testo sotto la copertina (camere) e sezioni immagine-testo.
 
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/db');
@@ -19,6 +19,10 @@ const Pagina = sequelize.define(
       unique: true,
     },
     descrizione: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    testo: {
       type: DataTypes.TEXT,
       allowNull: true,
     },

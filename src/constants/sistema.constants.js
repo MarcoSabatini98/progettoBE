@@ -55,16 +55,18 @@ const CARTELLE_UPLOAD = Object.freeze({
 // qualunque campo del record, quindi niente prezzi o id tra questi.
 const CAMPI_TRADUCIBILI = Object.freeze({
   tipologia_camera: Object.freeze(['nome', 'descrizione', 'letti']),
+  camera: Object.freeze(['descrizione']),
   servizio: Object.freeze(['nome', 'descrizione']),
   pacchetto: Object.freeze(['nome', 'descrizione']),
   promozione: Object.freeze(['nome', 'descrizione']),
   faq: Object.freeze(['domanda', 'risposta']),
-  pagina: Object.freeze(['descrizione']),
+  pagina: Object.freeze(['descrizione', 'testo']),
   sezione: Object.freeze(['titolo', 'testo']),
 });
 
-// Pagine del sito con sezioni immagine-testo (tabella pagine, una riga ciascuna).
-const PAGINE_SITO = Object.freeze(['home', 'struttura', 'attivita']);
+// Pagine del sito con contenuti propri (tabella pagine, una riga ciascuna).
+// camere: copertina, sottotitolo e testo sopra le tipologie, senza sezioni.
+const PAGINE_SITO = Object.freeze(['home', 'struttura', 'attivita', 'camere']);
 
 module.exports = {
   ORIGINE_RETE_LOCALE,
