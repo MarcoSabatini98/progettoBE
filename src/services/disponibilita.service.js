@@ -10,7 +10,7 @@ const impostazioni = require('./impostazioni.service');
 const tariffe = require('./tariffe.service');
 const camere = require('./camere.service');
 const { richiestaNonValida, conflitto, ErroreApp } = require('../utils/errori');
-const { oggi, aggiungiMinuti } = require('../utils/date');
+const { oggi, aggiungiGiorni, aggiungiMinuti, notti } = require('../utils/date');
 
 function controllaDate(arrivo, partenza) {
   if (arrivo < oggi()) {
@@ -147,6 +147,45 @@ async function blocca({
   });
 }
 
+// Notti di una camera occupate in [dal, al): soggiorni, blocchi di altre sessioni,
+// chiusure sue e della struttura. In manutenzione non si arriva oggi (come sp_disponibilita).
+function nottiOccupate(camera, chiusure, dal, al) {
+  const periodi = [
+    ...[...camera.prenotazioni, ...camera.blocchi_temporanei].map((s) => [
+      s.data_arrivo,
+      s.data_partenza,
+    ]),
+    ...[...camera.date_bloccate, ...chiusure].map((c) => [c.data_inizio, c.data_fine]),
+  ];
+  if (camera.stato === 'manutenzione') {
+    periodi.push([oggi(), aggiungiGiorni(oggi(), 1)]);
+  }
+  // tagliati al periodo: una chiusura lunga anni non diventa migliaia di notti
+  return new Set(
+    periodi.flatMap(([inizio, fine]) => notti(inizio > dal ? inizio : dal, fine < al ? fine : al)),
+  );
+}
+
+/**
+ * Calendario del sito: notti occupate in [dal, al) di una camera, o di una
+ * tipologia quando nessuna sua camera è libera quella notte.
+ * @returns {Promise<{ occupate: string[] }>} date 'YYYY-MM-DD' in ordine
+ */
+async function occupazione({ dal, al, cameraId, tipologiaId, sessione }) {
+  camere.controllaPeriodo(dal, al);
+  const [elenco, chiusure] = await Promise.all([
+    disponibilitaRepo.trovaOccupazione({ cameraId, tipologiaId }, dal, al, sessione),
+    disponibilitaRepo.trovaChiusureStruttura(dal, al),
+  ]);
+  const perCamera = elenco.map((camera) => nottiOccupate(camera, chiusure, dal, al));
+  // nessuna camera prenotabile: tutto occupato (every su elenco vuoto è true)
+  return {
+    occupate: notti(dal, al).filter((notte) =>
+      perCamera.every((nottiCamera) => nottiCamera.has(notte)),
+    ),
+  };
+}
+
 /** Blocco ancora valido della sessione, altrimenti errore. */
 async function bloccoDi(sessione, transaction = null) {
   const blocco = await disponibilitaRepo.trovaBloccoPerSessione(sessione, transaction);
@@ -172,6 +211,7 @@ module.exports = {
   controllaDate,
   camereLibere,
   cerca,
+  occupazione,
   blocca,
   bloccoDi,
   rilascia,

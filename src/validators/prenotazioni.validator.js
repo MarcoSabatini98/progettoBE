@@ -44,6 +44,15 @@ const schemaBloccaCamera = Joi.object({
   ospiti: Joi.number().integer().min(1).max(100).required(),
 }).or('camera_id', 'tipologia_id');
 
+// Calendario del sito: notti occupate di una camera o di una tipologia in [dal, al).
+const schemaOccupazione = Joi.object({
+  camera_id: id,
+  tipologia_id: id,
+  dal: data.required(),
+  al: data.required(),
+  sessione,
+}).xor('camera_id', 'tipologia_id');
+
 const schemaSessioneParam = Joi.object({ sessione: sessione.required() });
 
 // ─────────────────────────────────────
@@ -141,6 +150,7 @@ const schemaPerCodice = Joi.object({
 module.exports = {
   schemaCercaDisponibilita,
   schemaBloccaCamera,
+  schemaOccupazione,
   schemaSessioneParam,
   schemaServizioParam,
   schemaTokenParam,
