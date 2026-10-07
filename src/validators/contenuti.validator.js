@@ -115,9 +115,10 @@ const schemaAggiornaFaq = Joi.object({
 // Pagine e sezioni
 // ─────────────────────────────────────
 
-// Vuota = nessuna descrizione sotto il titolo.
+// Vuota = nessuna descrizione sotto il titolo; testo = paragrafo sotto la copertina (camere).
 const schemaAggiornaPagina = Joi.object({
   descrizione: Joi.string().trim().max(2_000).allow(null, '').required(),
+  testo: Joi.string().trim().max(5_000).allow(null, ''),
 });
 
 const campiSezione = {

@@ -154,11 +154,11 @@ async function creaCatalogo(ctx) {
 
   const extra = {};
   for (const servizio of [
-    { nome: 'Colazione', prezzo: 12, calcolo_prezzo: 'a_persona_notte', icona: 'breakfast' },
-    { nome: 'Parcheggio', prezzo: 10, calcolo_prezzo: 'a_notte', icona: 'parking' },
-    { nome: 'Transfer aeroporto', prezzo: 35, calcolo_prezzo: 'a_soggiorno', icona: 'taxi' },
-    { nome: 'Late check-out', prezzo: 20, calcolo_prezzo: 'a_soggiorno', icona: 'clock' },
-    { nome: 'Noleggio bici', prezzo: 15, calcolo_prezzo: 'a_persona', icona: 'bike' },
+    { nome: 'Colazione', prezzo: 12, calcolo_prezzo: 'a_persona_notte', icona: 'breakfast_dining' },
+    { nome: 'Parcheggio', prezzo: 10, calcolo_prezzo: 'a_notte', icona: 'local_parking' },
+    { nome: 'Transfer aeroporto', prezzo: 35, calcolo_prezzo: 'a_soggiorno', icona: 'local_taxi' },
+    { nome: 'Late check-out', prezzo: 20, calcolo_prezzo: 'a_soggiorno', icona: 'schedule' },
+    { nome: 'Noleggio bici', prezzo: 15, calcolo_prezzo: 'a_persona', icona: 'pedal_bike' },
   ]) {
     extra[servizio.nome] = await camereService.creaServizio({ ...servizio, tipo: 'extra' });
   }
@@ -171,7 +171,7 @@ async function creaCatalogo(ctx) {
       ospiti_max: 1,
       superficie_mq: 14,
       letti: '1 singolo',
-      foto: ['singola-1.jpg'],
+      foto: ['tipologia-singola.jpg'],
     },
     {
       nome: 'Doppia',
@@ -179,7 +179,7 @@ async function creaCatalogo(ctx) {
       ospiti_max: 2,
       superficie_mq: 18,
       letti: '1 matrimoniale',
-      foto: ['doppia-1.jpg', 'doppia-2.jpg'],
+      foto: ['tipologia-doppia.jpg'],
     },
     {
       nome: 'Tripla',
@@ -187,7 +187,7 @@ async function creaCatalogo(ctx) {
       ospiti_max: 3,
       superficie_mq: 24,
       letti: '1 matrimoniale + 1 singolo',
-      foto: ['tripla-1.jpg', 'tripla-2.jpg'],
+      foto: ['tipologia-tripla.jpg'],
     },
     {
       nome: 'Suite',
@@ -196,7 +196,7 @@ async function creaCatalogo(ctx) {
       superficie_mq: 40,
       letti: '1 matrimoniale + divano letto',
       servizi: [dotazione('Minibar'), dotazione('Balcone'), dotazione('Vista mare')],
-      foto: ['suite-1.jpg', 'suite-2.jpg'],
+      foto: ['tipologia-suite.jpg'],
     },
   ].entries()) {
     tipologie[tipologia.nome] = await camereService.creaTipologia({
@@ -216,35 +216,26 @@ async function creaCatalogo(ctx) {
     );
   }
 
-  // Le camere senza foto proprie mostrano quelle della tipologia; con più foto, il sito le fa sfogliare.
+  // Foto delle camere: camera-<numero>-<n>.jpg; con più foto, il sito le fa sfogliare.
   const camere = {};
-  for (const [numero, tipologia, piano, { foto = [], servizi = [] } = {}] of [
-    ['101', 'Singola', 1],
-    ['102', 'Doppia', 1, { foto: ['doppia-2.jpg'] }],
-    [
-      '103',
-      'Doppia',
-      1,
-      {
-        foto: ['doppia-1.jpg', 'doppia-2.jpg', 'suite-2.jpg', 'tripla-2.jpg'],
-        servizi: ['Balcone'],
-      },
-    ],
-    ['104', 'Tripla', 1],
-    ['201', 'Doppia', 2, { servizi: ['Vista mare'] }],
-    ['202', 'Tripla', 2, { foto: ['tripla-2.jpg', 'tripla-1.jpg'], servizi: ['Balcone'] }],
-    ['203', 'Suite', 2],
-    ['204', 'Suite', 2, { foto: ['suite-2.jpg', 'suite-1.jpg', 'doppia-1.jpg'] }],
+  for (const [numero, tipologia, piano, quanteFoto] of [
+    ['101', 'Singola', 1, 2],
+    ['102', 'Doppia', 1, 3],
+    ['103', 'Doppia', 1, 2],
+    ['104', 'Tripla', 1, 2],
+    ['201', 'Doppia', 2, 3],
+    ['202', 'Tripla', 2, 2],
+    ['203', 'Suite', 2, 3],
+    ['204', 'Suite', 2, 3],
   ]) {
     camere[numero] = await camereService.creaCamera({
       numero,
       tipologia_id: tipologie[tipologia].id,
       piano,
-      servizi: servizi.map(dotazione),
     });
     await aggiungiFoto(
       { entita: 'camera', entitaId: camere[numero].id, testoAlternativo: `Camera ${numero}` },
-      foto,
+      Array.from({ length: quanteFoto }, (_, i) => `camera-${numero}-${i + 1}.jpg`),
     );
   }
 

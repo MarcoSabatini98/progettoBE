@@ -259,6 +259,7 @@ CREATE TABLE camere (
   stato           ENUM('attiva','manutenzione','fuori_servizio') NOT NULL DEFAULT 'attiva',
   stato_pulizia   ENUM('pulita','sporca','in_pulizia','da_ispezionare') NOT NULL DEFAULT 'pulita',
   token_ical      CHAR(64)      NULL,              -- token dell'URL pubblico di esportazione iCal
+  descrizione     TEXT          NULL,              -- per il sito; NULL = quella della tipologia
   note            TEXT          NULL,
   creato_il       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   aggiornato_il   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -269,15 +270,6 @@ CREATE TABLE camere (
   KEY idx_camere_tipologia (tipologia_id),
   CONSTRAINT chk_camere_ospiti CHECK (ospiti_max IS NULL OR ospiti_max > 0),
   FOREIGN KEY (tipologia_id) REFERENCES tipologie_camera(id)
-);
-
--- Dotazioni specifiche della singola camera (es. solo la 101 ha vista mare).
-CREATE TABLE camere_servizi (
-  camera_id       INT UNSIGNED  NOT NULL,
-  servizio_id     INT UNSIGNED  NOT NULL,
-  PRIMARY KEY (camera_id, servizio_id),
-  FOREIGN KEY (camera_id)   REFERENCES camere(id)  ON DELETE CASCADE,
-  FOREIGN KEY (servizio_id) REFERENCES servizi(id) ON DELETE CASCADE
 );
 
 -- Immagini e video. Relazione polimorfica: entita + entita_id.
@@ -1163,12 +1155,13 @@ CREATE TABLE faq (
   FOREIGN KEY (aggiornato_da) REFERENCES utenti(id) ON DELETE SET NULL
 );
 
--- Pagine del sito con contenuti scritti dalla struttura: home, struttura, attività.
+-- Pagine del sito con contenuti scritti dalla struttura: home, struttura, attività, camere.
 -- La foto di copertina è nei media (entita 'pagina'), le altre lingue in traduzioni.
 CREATE TABLE pagine (
   id              INT UNSIGNED  NOT NULL AUTO_INCREMENT,
-  chiave          ENUM('home','struttura','attivita') NOT NULL,
+  chiave          ENUM('home','struttura','attivita','camere') NOT NULL,
   descrizione     TEXT          NULL,          -- sotto il titolo, nella copertina
+  testo           TEXT          NULL,          -- paragrafo sotto la copertina (camere)
   aggiornato_il   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_pagine_chiave (chiave)
@@ -1979,4 +1972,4 @@ INSERT INTO impostazioni (chiave, valore, tipo, gruppo, descrizione, pubblica) V
   ('aspetto_tema',                'sistema',   'testo',    'aspetto',       'Tema predefinito: sistema, chiaro o scuro (ognuno può cambiarlo sul suo dispositivo)', TRUE);
 
 -- Le pagine del sito con contenuti propri: le loro sezioni si scrivono dal gestionale.
-INSERT INTO pagine (chiave) VALUES ('home'), ('struttura'), ('attivita');
+INSERT INTO pagine (chiave) VALUES ('home'), ('struttura'), ('attivita'), ('camere');

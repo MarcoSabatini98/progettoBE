@@ -39,7 +39,6 @@ const TipologiaCamera = require('./TipologiaCamera');
 const Servizio = require('./Servizio');
 const TipologiaCameraServizio = require('./TipologiaCameraServizio');
 const Camera = require('./Camera');
-const CameraServizio = require('./CameraServizio');
 
 // Tariffe, sconti e fedeltà
 const PianoTariffario = require('./PianoTariffario');
@@ -130,20 +129,6 @@ Servizio.belongsToMany(TipologiaCamera, {
   foreignKey: 'servizio_id',
   otherKey: 'tipologia_id',
   as: 'tipologie',
-});
-
-// Camera ↔ Servizio tramite camere_servizi (dotazioni in più della singola camera)
-Camera.belongsToMany(Servizio, {
-  through: CameraServizio,
-  foreignKey: 'camera_id',
-  otherKey: 'servizio_id',
-  as: 'servizi',
-});
-Servizio.belongsToMany(Camera, {
-  through: CameraServizio,
-  foreignKey: 'servizio_id',
-  otherKey: 'camera_id',
-  as: 'camere',
 });
 
 // Pacchetto ↔ Servizio tramite pacchetti_servizi
@@ -304,6 +289,12 @@ Sezione.hasMany(Media, {
   constraints: false,
 });
 
+Camera.hasMany(Traduzione, {
+  foreignKey: 'entita_id',
+  scope: { entita: 'camera' },
+  as: 'traduzioni',
+  constraints: false,
+});
 TipologiaCamera.hasMany(Traduzione, {
   foreignKey: 'entita_id',
   scope: { entita: 'tipologia_camera' },
@@ -610,7 +601,6 @@ module.exports = {
   Servizio,
   TipologiaCameraServizio,
   Camera,
-  CameraServizio,
 
   // tariffe e fedeltà
   PianoTariffario,

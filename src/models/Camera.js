@@ -50,6 +50,11 @@ const Camera = sequelize.define(
       type: DataTypes.CHAR(64),
       allowNull: true,
     },
+    // Per il sito; vuota = si vede quella della tipologia.
+    descrizione: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
     note: {
       type: DataTypes.TEXT,
       allowNull: true,
