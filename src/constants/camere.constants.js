@@ -19,6 +19,8 @@ const ENTITA_MEDIA = Object.freeze([
   'home', // sfondo della home col tema chiaro
   'home_scuro', // e col tema scuro
   'logo',
+  'pagina', // copertina di una pagina del sito (struttura, attività)
+  'sezione', // immagine di una sezione immagine-testo
   'varie',
 ]);
 

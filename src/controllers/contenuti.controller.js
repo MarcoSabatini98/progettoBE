@@ -1,7 +1,7 @@
 // src/controllers/contenuti.controller.js
 //
 // Contenuti del sito: traduzioni e immagini di ogni entità (tipologie,
-// servizi, pacchetti...), FAQ, documenti legali ed eventi in zona.
+// servizi, pacchetti...), FAQ, pagine e sezioni, documenti legali ed eventi in zona.
 
 const contenutiService = require('../services/contenuti.service');
 const { inviaSuccesso } = require('../utils/risposta');
@@ -13,6 +13,12 @@ const { inviaSuccesso } = require('../utils/risposta');
 const faqPubbliche = async (req, res) => {
   const faq = await contenutiService.faqPubbliche(req.query.lingua);
   return inviaSuccesso(res, 200, faq);
+};
+
+/** Home, struttura o attività: copertina e sezioni nella lingua richiesta. */
+const paginaPubblica = async (req, res) => {
+  const pagina = await contenutiService.paginaPubblica(req.params.chiave, req.query.lingua);
+  return inviaSuccesso(res, 200, pagina);
 };
 
 /** Privacy, termini, cookie: la versione in vigore nella lingua richiesta. */
@@ -112,6 +118,35 @@ const eliminaFaq = async (req, res) => {
 };
 
 // ─────────────────────────────────────
+// Pagine e sezioni
+// ─────────────────────────────────────
+
+const elencoPagine = async (req, res) => {
+  const pagine = await contenutiService.elencoPagine();
+  return inviaSuccesso(res, 200, pagine);
+};
+
+const aggiornaPagina = async (req, res) => {
+  const pagina = await contenutiService.aggiornaPagina(req.params.id, req.body);
+  return inviaSuccesso(res, 200, pagina);
+};
+
+const creaSezione = async (req, res) => {
+  const sezione = await contenutiService.creaSezione(req.body);
+  return inviaSuccesso(res, 201, sezione);
+};
+
+const aggiornaSezione = async (req, res) => {
+  const sezione = await contenutiService.aggiornaSezione(req.params.id, req.body);
+  return inviaSuccesso(res, 200, sezione);
+};
+
+const eliminaSezione = async (req, res) => {
+  await contenutiService.eliminaSezione(req.params.id);
+  return inviaSuccesso(res, 200, null);
+};
+
+// ─────────────────────────────────────
 // Documenti legali
 // ─────────────────────────────────────
 
@@ -176,6 +211,7 @@ const eliminaEvento = async (req, res) => {
 
 module.exports = {
   faqPubbliche,
+  paginaPubblica,
   documentoLegaleVigente,
   traduzioniDi,
   salvaTraduzioni,
@@ -189,6 +225,11 @@ module.exports = {
   creaFaq,
   aggiornaFaq,
   eliminaFaq,
+  elencoPagine,
+  aggiornaPagina,
+  creaSezione,
+  aggiornaSezione,
+  eliminaSezione,
   elencoDocumentiLegali,
   dettaglioDocumentoLegale,
   creaDocumentoLegale,
