@@ -703,28 +703,46 @@ async function creaFaq(ctx, ctxAdmin) {
 
 const EVENTI = [
   {
-    titolo: 'Ferragosto',
+    titolo: [
+      'Ferragosto',
+      'Ferragosto (Assumption Day)',
+      'Ferragosto (Assomption)',
+      'Ferragosto (Mariä Himmelfahrt)',
+      'Ferragosto (Asunción)',
+    ],
     tipo: 'festivita',
     date: (anno) => [`${anno}-08-15`, `${anno}-08-15`],
     impatto: 9,
     note: 'Tutto esaurito da giugno: niente promozioni.',
   },
   {
-    titolo: 'Mostra regionale del formaggio',
+    titolo: [
+      'Mostra regionale del formaggio',
+      'Regional cheese fair',
+      'Salon régional du fromage',
+      'Regionale Käsemesse',
+      'Feria regional del queso',
+    ],
     tipo: 'fiera',
     giorni: [18, 21],
     impatto: 8,
     note: 'Espositori da tutta l’isola: proporre il soggiorno minimo di due notti.',
   },
   {
-    titolo: 'Festa di San Pantaleo',
+    titolo: [
+      'Festa di San Pantaleo',
+      'Feast of Saint Pantaleon',
+      'Fête de saint Pantaléon',
+      'Fest des heiligen Pantaleon',
+      'Fiesta de San Pantaleón',
+    ],
     tipo: 'evento_locale',
     giorni: [40, 42],
     impatto: 6,
     note: 'Processione e concerti in piazza: avvisare gli ospiti del traffico in centro.',
   },
   {
-    titolo: 'Capodanno',
+    titolo: ['Capodanno', 'New Year’s Eve', 'Réveillon du Nouvel An', 'Silvester', 'Nochevieja'],
     tipo: 'festivita',
     date: (anno) => [`${anno}-12-31`, `${anno + 1}-01-01`],
     impatto: 7,
@@ -732,7 +750,13 @@ const EVENTI = [
   },
   {
     // Gli eventi compaiono anche sul sito: niente che spaventi gli ospiti.
-    titolo: 'Mercatino dell’antiquariato',
+    titolo: [
+      'Mercatino dell’antiquariato',
+      'Antiques market',
+      'Marché aux antiquités',
+      'Antikmarkt',
+      'Mercadillo de antigüedades',
+    ],
     tipo: 'altro',
     giorni: [5, 6],
     impatto: 2,
@@ -741,11 +765,18 @@ const EVENTI = [
 ];
 
 // Le festività cadono in date fisse dell'anno in corso, gli altri eventi attorno a oggi.
+// Il titolo è tradotto perché gli eventi compaiono anche sul sito.
 async function creaEventi() {
   const anno = Number(giorno(0).slice(0, 4));
-  for (const { giorni, date, ...evento } of EVENTI) {
+  for (const { giorni, date, titolo, ...evento } of EVENTI) {
     const [inizio, fine] = date ? date(anno) : giorni.map(giorno);
-    await contenutiService.creaEvento({ ...evento, data_inizio: inizio, data_fine: fine });
+    const creato = await contenutiService.creaEvento({
+      ...evento,
+      ...italiano({ titolo }),
+      data_inizio: inizio,
+      data_fine: fine,
+    });
+    await traduci('evento', creato.id, { titolo });
   }
 }
 
