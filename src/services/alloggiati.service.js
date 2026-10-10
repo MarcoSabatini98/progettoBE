@@ -139,7 +139,7 @@ async function avvisaDaInviare() {
       priorita: 'avviso',
       codice: 'alloggiati_da_inviare',
       parametri: { totale: soggiorni.length },
-      titolo: `Alloggiati Web: ${soggiorni.length} soggiorni da inviare entro 24 ore dall'arrivo`,
+      titolo: `Alloggiati Web, soggiorni da inviare entro 24 ore dall'arrivo: ${soggiorni.length}`,
       link: '/staff/alloggiati',
     });
   }
