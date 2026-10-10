@@ -1,6 +1,6 @@
 # Foto di prova
 
-Foto usate da `seed-prova.js`.
+Foto usate da `seed-prova/`.
 
 ## Pagine del sito
 
@@ -23,7 +23,7 @@ tagliata la data stampata in basso.
 
 Foto stock da Unsplash ([licenza Unsplash](https://unsplash.com/license): uso
 libero anche commerciale, nessun obbligo di attribuzione, vietato rivenderle
-così come sono). Scaricate a 1600 px di larghezza. Le usa `seed-prova.js`:
+così come sono). Scaricate a 1600 px di larghezza. Le usa `seed-prova/`:
 `tipologia-*` per le tipologie, `camera-<numero>-<n>` per le camere.
 
 | File                  | Originale                                                    |
@@ -52,3 +52,32 @@ così come sono). Scaricate a 1600 px di larghezza. Le usa `seed-prova.js`:
 | camera-204-1.jpg      | https://images.unsplash.com/photo-1616594039964-ae9021a400a0 |
 | camera-204-2.jpg      | https://images.unsplash.com/photo-1598928506311-c55ded91a20c |
 | camera-204-3.jpg      | https://images.unsplash.com/photo-1592229505726-ca121723b8ef |
+
+## Servizi, pacchetti e galleria della struttura
+
+In pubblico dominio (CC0) da Wikimedia Commons: nessun obbligo di attribuzione,
+gli autori sono citati per cortesia. Scaricate a 1280 px di larghezza.
+`servizio-*` per gli extra, `pacchetto-*` per i pacchetti, `struttura-*` per la
+galleria della home, `varie-*` per la libreria media.
+
+| File                       | Autore             | Licenza | Originale                                                                                                                                                                      |
+| -------------------------- | ------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| servizio-colazione.jpg     | Anthony Delanoix   | CC0     | https://commons.wikimedia.org/wiki/File:Breakfast_table_with_pancakes_(Unsplash).jpg                                                                                           |
+| servizio-parcheggio.jpg    | Malcolmxl5         | CC0     | https://commons.wikimedia.org/wiki/File:Castle_car_park_York_Sep24_01.jpg                                                                                                      |
+| servizio-transfer.jpg      | Guillaume Vachey   | CC0     | https://commons.wikimedia.org/wiki/File:Lincoln_Town_Car_Genève_Taxi_(32511654678).jpg                                                                                         |
+| servizio-late-checkout.jpg | Ounfs Robmmy 238   | CC0     | https://commons.wikimedia.org/wiki/File:TW_台湾_Taipei_台北_Hotel_Metropolitan_Premier_Taipei_酒店房間_hotel_room_枕頭_white_pillows_n_巨床_big_big_bed_March_2024_R12S_01.jpg |
+| servizio-bici.jpg          | Syced              | CC0     | https://commons.wikimedia.org/wiki/File:Rental_bicycles_at_Tourism_Office_in_Trégastel.jpg                                                                                     |
+| servizio-massaggio.jpg     | Kaleidoscopehotels | CC0     | https://commons.wikimedia.org/wiki/File:Bishopstrow-hotel-spa-wiltshire.jpg                                                                                                    |
+| servizio-kayak.jpg         | W.carter           | CC0     | https://commons.wikimedia.org/wiki/File:Kayaking_in_Brofjorden_at_Govik_1.jpg                                                                                                  |
+| pacchetto-romantica.jpg    | Myriam Zilles      | CC0     | https://commons.wikimedia.org/wiki/File:Champagne-glasses-1940262_1920.jpg                                                                                                     |
+| pacchetto-relax.jpg        | Qasinka            | CC0     | https://commons.wikimedia.org/wiki/File:2025_Patince_spa.jpg                                                                                                                   |
+| pacchetto-mare.jpg         | W.carter           | CC0     | https://commons.wikimedia.org/wiki/File:Getting_into_the_kayak_in_Govik.jpg                                                                                                    |
+| struttura-hall.jpg         | Nicoleon           | CC0     | https://commons.wikimedia.org/wiki/File:Lobby_at_Hotel_Martinez.jpg                                                                                                            |
+| struttura-piscina.jpg      | Trefeddian Hotel   | CC0     | https://commons.wikimedia.org/wiki/File:Trefeddian_Hotel_Swimming_Pool.jpg                                                                                                     |
+| struttura-vista.jpg        | Mohansmarty        | CC0     | https://commons.wikimedia.org/wiki/File:Sea_view_villa_in_Benimeit_Moraira.jpg                                                                                                 |
+| struttura-giardino.jpg     | Bim24              | CC0     | https://commons.wikimedia.org/wiki/File:Bougainvillea_or_Bombil_(_in_Cebuano)_7.jpg                                                                                            |
+| struttura-colazione.jpg    | Andy Li            | CC0     | https://commons.wikimedia.org/wiki/File:Breakfast_in_Le_Grand_St_Marc,_Rouen_2025-03-23.jpg                                                                                    |
+| struttura-citta.jpg        | Roman Kraft        | CC0     | https://commons.wikimedia.org/wiki/File:Cagliari,_Italy_(Unsplash).jpg                                                                                                         |
+| varie-panorama.jpg         | Avisadehh          | CC0     | https://commons.wikimedia.org/wiki/File:PANORAMIC_VIEW_OF_CAGLIARI_SARDEGNA.נוף_פנורמי_קליארי_סרדיניה.jpg                                                                      |
+| varie-torre.jpg            | Avisadehh          | CC0     | https://commons.wikimedia.org/wiki/File:Torre_di_San_Pancrazio,_Cagliari,_Sardegna.מגדל_סן_פנקרציאו_קליארי_סרדיניה.jpg                                                         |
+| varie-gatto.jpg            | Gerda Arendt       | CC0     | https://commons.wikimedia.org/wiki/File:Cat_with_an_eye_on_the_breakfast_table,_Pou_des_Lleó._Ibiza.jpg                                                                        |

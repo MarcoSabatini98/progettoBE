@@ -9,3 +9,6 @@ uploads/
 !.env.example
 
 .kilo/
+
+# Media dell'utente per il seed di prova: restano in locale (database/seed-prova/)
+database/dati/media/
