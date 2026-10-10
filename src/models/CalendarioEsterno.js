@@ -28,7 +28,9 @@ const CalendarioEsterno = sequelize.define(
     url: {
       type: DataTypes.STRING(1000),
       allowNull: false,
-      validate: { isUrl: true },
+      // come il validatore della rotta: anche un host senza dominio (localhost in prova);
+      // isUrl di Sequelize ignora le opzioni, isURL di validator no
+      validate: { isURL: { args: { require_tld: false } } },
     },
     attivo: {
       type: DataTypes.BOOLEAN,

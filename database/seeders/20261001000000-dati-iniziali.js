@@ -1,5 +1,5 @@
 // Dati iniziali: quelli di base (seed-base.js) sempre, quelli di prova
-// (seed-prova.js) solo fuori produzione. Si può rilanciare: ciò che esiste
+// (seed-prova/) solo fuori produzione. Si può rilanciare: ciò che esiste
 // già non viene ricreato.
 
 const modelli = require('../../src/models');
