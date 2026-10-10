@@ -15,6 +15,12 @@ const faqPubbliche = async (req, res) => {
   return inviaSuccesso(res, 200, faq);
 };
 
+/** Eventi in zona dei prossimi giorni, per la pagina Attività. */
+const eventiPubblici = async (req, res) => {
+  const eventi = await contenutiService.eventiPubblici(req.query.lingua);
+  return inviaSuccesso(res, 200, eventi);
+};
+
 /** Home, struttura o attività: copertina e sezioni nella lingua richiesta. */
 const paginaPubblica = async (req, res) => {
   const pagina = await contenutiService.paginaPubblica(req.params.chiave, req.query.lingua);
@@ -211,6 +217,7 @@ const eliminaEvento = async (req, res) => {
 
 module.exports = {
   faqPubbliche,
+  eventiPubblici,
   paginaPubblica,
   documentoLegaleVigente,
   traduzioniDi,

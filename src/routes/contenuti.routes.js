@@ -42,6 +42,7 @@ const faq = [richiediAccesso, richiediPermesso(PERMESSI.FAQ_GESTISCI)];
 // ─────────────────────────────────────
 
 router.get('/faq/pubbliche', valida({ query: schemaLingua }), controller.faqPubbliche);
+router.get('/eventi/pubblici', valida({ query: schemaLingua }), controller.eventiPubblici);
 router.get(
   '/pagine/:chiave/pubblica',
   valida({ params: schemaChiavePaginaParam, query: schemaLingua }),

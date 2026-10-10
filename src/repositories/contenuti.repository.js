@@ -285,6 +285,16 @@ const trovaEventi = async (filtri = {}) => {
   return await EventoSpeciale.findAll({ where, order: [['data_inizio', 'ASC']] });
 };
 
+// Per il sito: solo i dati da mostrare (note e impatto restano allo staff).
+const trovaEventiPubblici = async (dal, al, lingua) => {
+  return await EventoSpeciale.findAll({
+    attributes: ['id', 'titolo', 'tipo', 'data_inizio', 'data_fine'],
+    where: { data_fine: { [Op.gte]: dal }, data_inizio: { [Op.lte]: al } },
+    include: [{ model: Traduzione, as: 'traduzioni', where: { lingua }, required: false }],
+    order: [['data_inizio', 'ASC']],
+  });
+};
+
 const trovaEventoPerId = async (id) => {
   return await EventoSpeciale.findByPk(id);
 };
@@ -301,8 +311,8 @@ const aggiornaEvento = async (id, dati) => {
   return await evento.update(dati);
 };
 
-const eliminaEvento = async (id) => {
-  return await EventoSpeciale.destroy({ where: { id } });
+const eliminaEvento = async (id, transaction = null) => {
+  return await EventoSpeciale.destroy({ where: { id }, transaction });
 };
 
 module.exports = {
@@ -337,6 +347,7 @@ module.exports = {
   aggiornaDocumentoLegale,
   eliminaDocumentoLegale,
   trovaEventi,
+  trovaEventiPubblici,
   trovaEventoPerId,
   creaEvento,
   aggiornaEvento,
