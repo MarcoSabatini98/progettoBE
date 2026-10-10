@@ -11,6 +11,7 @@ const manutenzioneService = require('../../src/services/manutenzione.service');
 const chatService = require('../../src/services/chat.service');
 const notificheService = require('../../src/services/notifiche.service');
 const calendariService = require('../../src/services/calendari.service');
+const alloggiatiService = require('../../src/services/alloggiati.service');
 const camereService = require('../../src/services/camere.service');
 const chatRepo = require('../../src/repositories/chat.repository');
 const calendariRepo = require('../../src/repositories/calendari.repository');
@@ -600,25 +601,14 @@ async function creaChat(prenotazioni, { staff, clienti, visitatori }, admin) {
 // Calendari dei portali
 // ─────────────────────────────────────
 
-/** eventi: [arrivo, partenza] relativi a oggi. errori: sincronizzazioni fallite di fila. */
+/**
+ * fonte: camera di cui leggere il feed iCal del nostro backend, al posto del portale
+ * (così "Sincronizza ora" funziona davvero). Scelta senza soggiorni sopra quelli
+ * della camera, per non segnalare overbooking. errori: sincronizzazioni fallite di fila.
+ */
 const CALENDARI = [
-  {
-    camera: '301',
-    canale: 'airbnb',
-    nome: 'Airbnb – Suite vista mare',
-    url: 'https://www.airbnb.it/calendar/ical/912384756.ics?s=4f2a9c7e1b3d5f60',
-    eventi: [
-      [40, 43],
-      [75, 80],
-    ],
-  },
-  {
-    camera: '203',
-    canale: 'booking_com',
-    nome: 'Booking.com',
-    url: 'https://ical.booking.com/v1/export?t=7c1e5b2a-93d4-4f8e-a6b0-2d9e81c4f357',
-    eventi: [[60, 62]],
-  },
+  { camera: '301', canale: 'airbnb', nome: 'Airbnb – Suite vista mare', fonte: '204' },
+  { camera: '203', canale: 'booking_com', nome: 'Booking.com', fonte: '202' },
   {
     camera: '201',
     canale: 'expedia',
@@ -636,47 +626,45 @@ const CALENDARI = [
   },
 ];
 
-async function importaEventi(calendario, voce) {
-  const dominio = new URL(voce.url).hostname.replace(/^www\./, '');
-  await calendariRepo.salvaImportati(
-    voce.eventi.map(([arrivo, partenza], indice) => ({
-      camera_id: calendario.camera_id,
-      data_inizio: giorno(arrivo),
-      data_fine: giorno(partenza),
-      motivo: `${voce.nome}: prenotazione esterna`,
-      origine: 'ical',
-      calendario_id: calendario.id,
-      uid_esterno: `${calendario.id}-${indice}@${dominio}`,
-    })),
-  );
+/** Il link del feed iCal che la camera dà ai portali. */
+async function linkFeed(camera) {
+  const link = await calendariService.linkEsportazione();
+  return link.find((voce) => voce.camera_id === camera.id).url;
 }
 
-async function sincronizzato(calendario, voce) {
-  const ultima = momento(voce.errori ? -1 : 0, '02:00');
-  await calendariRepo.aggiornaCalendario(calendario.id, {
-    ultima_sincronizzazione_il: ultima,
-    ultimo_esito: voce.esito ?? `OK: ${voce.eventi.length} eventi`,
-    errori_consecutivi: voce.errori ?? 0,
-  });
-  if (voce.errori) {
-    // Il job avvisa una volta sola, alla terza sincronizzazione fallita.
-    await alMomento(
-      momento(-2, '02:00'),
-      () =>
-        notificheService.aChiPuo(PERMESSI.CALENDARI_GESTISCI, {
-          tipo: 'sistema',
-          priorita: 'errore',
-          codice: 'calendario_non_sincronizzato',
-          parametri: { canale: voce.nome },
-          titolo: `Il calendario ${voce.nome} non si sincronizza`,
-          testo: voce.esito,
-          link: `/staff/calendari/${calendario.id}`,
-        }),
-      DA_LEGGERE,
+/** Sincronizzazione delle 2 di notte: il feed letto da noi senza passare dalla rete. */
+async function sincronizzato(calendario, voce, camere) {
+  if (!voce.errori) {
+    const testo = await calendariService.feed(camere[voce.fonte].token_ical);
+    await calendariService.importa(
+      await calendariService.dettaglioCalendario(calendario.id),
+      testo,
     );
+    await calendariRepo.aggiornaCalendario(calendario.id, {
+      ultima_sincronizzazione_il: momento(0, '02:00'),
+    });
     return;
   }
-  await importaEventi(calendario, voce);
+  await calendariRepo.aggiornaCalendario(calendario.id, {
+    ultima_sincronizzazione_il: momento(-1, '02:00'),
+    ultimo_esito: voce.esito,
+    errori_consecutivi: voce.errori,
+  });
+  // Il job avvisa una volta sola, alla terza sincronizzazione fallita.
+  await alMomento(
+    momento(-2, '02:00'),
+    () =>
+      notificheService.aChiPuo(PERMESSI.CALENDARI_GESTISCI, {
+        tipo: 'sistema',
+        priorita: 'errore',
+        codice: 'calendario_non_sincronizzato',
+        parametri: { canale: voce.nome },
+        titolo: `Il calendario ${voce.nome} non si sincronizza`,
+        testo: voce.esito,
+        link: `/staff/calendari/${calendario.id}`,
+      }),
+    DA_LEGGERE,
+  );
 }
 
 async function creaCalendari(camere) {
@@ -685,7 +673,7 @@ async function creaCalendari(camere) {
       camera_id: camere[voce.camera].id,
       canale: voce.canale,
       nome: voce.nome,
-      url: voce.url,
+      url: voce.fonte ? await linkFeed(camere[voce.fonte]) : voce.url,
     });
     await retrodata(
       'calendari_esterni',
@@ -696,7 +684,7 @@ async function creaCalendari(camere) {
       await calendariService.aggiornaCalendario(calendario.id, { attivo: false });
       continue;
     }
-    await sincronizzato(calendario, voce);
+    await sincronizzato(calendario, voce, camere);
   }
   // Link di esportazione girato per errore a un ex collaboratore: rigenerato.
   await camereService.rigeneraTokenIcal(camere['301'].id);
@@ -734,6 +722,8 @@ async function creaOperativita(prenotazioni, persone, catalogo, admin) {
   const tv = await creaManutenzione(catalogo.camere, utenti);
   await creaChat(prenotazioni, persone, admin);
   await creaCalendari(catalogo.camere);
+  // Promemoria delle 9: le schedine di Sophie sono ancora da inviare.
+  await alMomento(momento(0, '07:00'), () => alloggiatiService.avvisaDaInviare(), DA_LEGGERE);
   await sistemaNotifiche(admin, tv);
 }
 

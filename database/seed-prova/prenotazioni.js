@@ -171,6 +171,8 @@ const SOGGIORNI = [
     compagni: [{ ospite: NUOVI.martinCompagno, tipo_alloggiato: 'familiare' }],
     incassi: [{ tipo: 'acconto', metodo: 'stripe' }],
     saldo: 'stripe',
+    // Schedine non ancora inviate: compaiono tra quelle da inviare ad Alloggiati Web.
+    alloggiati: [],
     fase: 'in_soggiorno',
   },
   // Parte oggi: conto e partenza li registra la reception stamattina (operativita.js).

@@ -243,7 +243,8 @@ const MINORE = { esente_tassa: true, motivo_esenzione: 'Minore di 14 anni' };
 /**
  * giorni: [arrivo, partenza] rispetto a oggi; anticipo: giorni tra prenotazione e arrivo.
  * incassi: { tipo, metodo, importo? } (senza importo: l'acconto chiesto o quanto resta).
- * durante: extra aggiunti durante il soggiorno; alloggiati: invii al portale.
+ * durante: extra aggiunti durante il soggiorno; alloggiati: invii al portale
+ * (vuoto: schedine ancora da inviare).
  */
 const SOGGIORNI = [
   {

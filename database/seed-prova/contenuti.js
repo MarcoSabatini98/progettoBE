@@ -731,11 +731,12 @@ const EVENTI = [
     note: 'Cenone in collaborazione con il ristorante accanto.',
   },
   {
-    titolo: 'Lavori in via Mazzini',
+    // Gli eventi compaiono anche sul sito: niente che spaventi gli ospiti.
+    titolo: 'Mercatino dell’antiquariato',
     tipo: 'altro',
-    giorni: [5, 9],
+    giorni: [5, 6],
     impatto: 2,
-    note: 'Strada chiusa di giorno: indicare il parcheggio sul retro.',
+    note: 'Bancarelle in piazza: la strada è chiusa, indicare il parcheggio sul retro.',
   },
 ];
 

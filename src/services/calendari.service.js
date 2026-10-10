@@ -290,9 +290,9 @@ async function sincronizza(id) {
       'Il calendario è disattivato: riattivalo per sincronizzarlo',
     );
   }
-  let eventi;
+  let testo;
   try {
-    eventi = leggiIcs(await scarica(calendario.url)).filter((evento) => evento.fine > oggi());
+    testo = await scarica(calendario.url);
   } catch (errore) {
     await registraErrore(calendario, errore);
     throw richiestaNonValida(
@@ -300,7 +300,15 @@ async function sincronizza(id) {
       `Sincronizzazione non riuscita: ${errore.message}`,
     );
   }
+  return await importa(calendario, testo);
+}
 
+/**
+ * Applica al calendario il testo .ics scaricato: gli eventi futuri diventano
+ * date bloccate, quelli nuovi sopra una prenotazione avvisano dell'overbooking.
+ */
+async function importa(calendario, testo) {
+  const eventi = leggiIcs(testo).filter((evento) => evento.fine > oggi());
   const giaImportati = new Set(await calendariRepo.trovaUidImportati(calendario.id));
   const righe = eventi.map((evento) => ({
     camera_id: calendario.camera_id,
@@ -360,5 +368,6 @@ module.exports = {
   aggiornaCalendario,
   eliminaCalendario,
   sincronizza,
+  importa,
   sincronizzaTutti,
 };
