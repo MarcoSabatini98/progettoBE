@@ -9,7 +9,8 @@ const impostazioni = require('./impostazioni.service');
 const { ErroreApp, nonTrovato, richiestaNonValida } = require('../utils/errori');
 const { applicaTraduzioni } = require('../utils/traduzioni');
 const file = require('../utils/file');
-const { CAMPI_TRADUCIBILI } = require('../constants/sistema.constants');
+const { CAMPI_TRADUCIBILI, GIORNI_EVENTI_SITO } = require('../constants/sistema.constants');
+const { oggi, aggiungiGiorni } = require('../utils/date');
 const { ENTITA_CON_VIDEO } = require('../constants/camere.constants');
 
 // ─────────────────────────────────────
@@ -352,6 +353,17 @@ async function elencoEventi(filtri) {
   return await contenutiRepo.trovaEventi(filtri);
 }
 
+/** Eventi in zona per il sito: in corso o nei prossimi giorni, tradotti. */
+async function eventiPubblici(lingua = 'it') {
+  const dal = oggi();
+  const righe = await contenutiRepo.trovaEventiPubblici(
+    dal,
+    aggiungiGiorni(dal, GIORNI_EVENTI_SITO),
+    lingua,
+  );
+  return righe.map(applicaTraduzioni);
+}
+
 async function eventiNelPeriodo(dal, al) {
   return await contenutiRepo.trovaEventi({ dal, al });
 }
@@ -397,7 +409,10 @@ async function aggiornaEvento(id, dati) {
 
 async function eliminaEvento(id) {
   await dettaglioEvento(id);
-  await contenutiRepo.eliminaEvento(id);
+  await sequelize.transaction(async (transaction) => {
+    await contenutiRepo.eliminaTraduzioniDi('evento', id, transaction);
+    await contenutiRepo.eliminaEvento(id, transaction);
+  });
 }
 
 module.exports = {
@@ -430,6 +445,7 @@ module.exports = {
   pubblicaDocumentoLegale,
   eliminaDocumentoLegale,
   elencoEventi,
+  eventiPubblici,
   eventiNelPeriodo,
   dettaglioEvento,
   creaEvento,

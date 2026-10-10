@@ -337,6 +337,12 @@ Sezione.hasMany(Traduzione, {
   as: 'traduzioni',
   constraints: false,
 });
+EventoSpeciale.hasMany(Traduzione, {
+  foreignKey: 'entita_id',
+  scope: { entita: 'evento' },
+  as: 'traduzioni',
+  constraints: false,
+});
 
 // ─────────────────────────────────────
 // UNO A MOLTI — camere e tariffe

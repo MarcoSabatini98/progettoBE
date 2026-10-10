@@ -37,6 +37,9 @@ const PRIORITA_NOTIFICA = Object.freeze(['info', 'successo', 'avviso', 'errore']
 
 const TIPI_EVENTO_SPECIALE = Object.freeze(['festivita', 'evento_locale', 'fiera', 'altro']);
 
+// Il sito mostra gli eventi in zona dei prossimi giorni, non tutto il calendario.
+const GIORNI_EVENTI_SITO = 90;
+
 const AZIONI_REGISTRO = Object.freeze(['inserimento', 'modifica', 'eliminazione']);
 
 // Tabelle scritte dai trigger di audit.
@@ -62,6 +65,7 @@ const CAMPI_TRADUCIBILI = Object.freeze({
   faq: Object.freeze(['domanda', 'risposta']),
   pagina: Object.freeze(['descrizione', 'testo']),
   sezione: Object.freeze(['titolo', 'testo']),
+  evento: Object.freeze(['titolo']),
 });
 
 // Pagine del sito con contenuti propri (tabella pagine, una riga ciascuna).
@@ -76,6 +80,7 @@ module.exports = {
   TIPI_NOTIFICA,
   PRIORITA_NOTIFICA,
   TIPI_EVENTO_SPECIALE,
+  GIORNI_EVENTI_SITO,
   AZIONI_REGISTRO,
   TABELLE_REGISTRO,
   CARTELLE_UPLOAD,
