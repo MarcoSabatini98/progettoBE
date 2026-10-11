@@ -62,7 +62,7 @@
   },
   "keywords": [],
   "author": "Marco Sabatini",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "dependencies": {
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
