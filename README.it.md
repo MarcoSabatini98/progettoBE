@@ -1,6 +1,6 @@
 # progettoBE
 
-[English](README.md) · **Italiano**
+[English](README.md) · **Italiano** · Client web: [progettoFE](https://github.com/MarcoSabatini98/progettoFE)
 
 API REST e in tempo reale di una piattaforma gestionale white-label per piccoli hotel e B&B.
 Una sola installazione fa girare il sito della struttura con la prenotazione online, il
