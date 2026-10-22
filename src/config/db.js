@@ -12,7 +12,7 @@ const sequelize = new Sequelize(config.db.nome, config.db.utente, config.db.pass
   dialect: 'mysql',
   timezone: '+00:00',
   // DECIMAL come numeri JS: i calcoli di denaro si fanno in centesimi interi
-  dialectOptions: { decimalNumbers: true },
+  dialectOptions: { decimalNumbers: true, ssl: config.db.ssl },
   logging: config.db.log ? (sql) => logger.debug(sql) : false,
   pool: { max: config.db.poolMax, min: 0, acquire: 30000, idle: 10000 },
   define: {

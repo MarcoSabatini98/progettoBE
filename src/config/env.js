@@ -2,6 +2,7 @@
 // Se qualcosa manca o è sbagliato l'applicazione non parte e dice cosa correggere.
 // Nei test il file .env non viene letto: le variabili le imposta il test.
 
+const fs = require('node:fs');
 const Joi = require('joi');
 const messaggi = require('./messaggi-joi');
 const { ORIGINE_RETE_LOCALE } = require('../constants/sistema.constants');
@@ -35,6 +36,7 @@ const schema = Joi.object({
   DB_PASSWORD: facoltativo,
   DB_POOL_MAX: Joi.number().integer().min(1).default(10),
   DB_LOG: Joi.boolean().default(false),
+  DB_SSL_CA: facoltativo,
 
   JWT_ACCESS_SECRET: segreto,
   JWT_REFRESH_SECRET: segreto.invalid(Joi.ref('JWT_ACCESS_SECRET')),
@@ -45,6 +47,10 @@ const schema = Joi.object({
   UPLOAD_DIR: Joi.string().default('uploads'),
   UPLOAD_MAX_MB: Joi.number().positive().default(5),
   UPLOAD_VIDEO_MAX_MB: Joi.number().positive().default(50),
+  CLOUDINARY_URL: Joi.string()
+    .pattern(/^cloudinary:\/\//)
+    .allow('')
+    .default(''),
 
   SMTP_HOST: facoltativo,
   SMTP_PORT: Joi.number().port().default(587),
@@ -103,6 +109,8 @@ module.exports = Object.freeze({
     password: v.DB_PASSWORD,
     poolMax: v.DB_POOL_MAX,
     log: v.DB_LOG,
+    // Database online: connessione cifrata, verificata con il certificato del provider.
+    ssl: v.DB_SSL_CA ? { ca: fs.readFileSync(v.DB_SSL_CA, 'utf8') } : undefined,
   },
 
   jwt: {
@@ -115,6 +123,7 @@ module.exports = Object.freeze({
 
   upload: {
     cartella: v.UPLOAD_DIR,
+    cloudinary: Boolean(v.CLOUDINARY_URL),
     maxByte: Math.round(v.UPLOAD_MAX_MB * 1024 * 1024),
     maxByteVideo: Math.round(Math.max(v.UPLOAD_VIDEO_MAX_MB, v.UPLOAD_MAX_MB) * 1024 * 1024),
   },

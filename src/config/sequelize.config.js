@@ -29,6 +29,7 @@ const connessione = {
   port: config.db.porta,
   dialect: 'mysql',
   timezone: '+00:00',
+  dialectOptions: { ssl: config.db.ssl },
   logging: false,
 };
 

@@ -27,7 +27,8 @@
     "migrate:reset": "npm run migrate:undo:all && npm run migrate && npm run seed",
     "migrate:status": "sequelize-cli db:migrate:status",
     "seed": "sequelize-cli db:seed:all",
-    "prepare": "husky"
+    "cloudinary:carica": "node scripts/carica-cloudinary.js",
+    "prepare": "husky || true"
   },
   "jest": {
     "projects": [
@@ -65,6 +66,7 @@
   "license": "UNLICENSED",
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "cloudinary": "^2.11.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^18.0.4",
@@ -79,6 +81,7 @@
     "nodemailer": "^10.0.10",
     "pdfmake": "^0.3.11",
     "sequelize": "^6.37.8",
+    "sequelize-cli": "^6.6.5",
     "socket.io": "^4.8.4",
     "stripe": "^22.6.2",
     "winston": "^3.19.0"
@@ -90,7 +93,6 @@
     "husky": "^9.1.7",
     "jest": "^30.5.2",
     "lint-staged": "^17.5.1",
-    "prettier": "^3.9.9",
-    "sequelize-cli": "^6.6.5"
+    "prettier": "^3.9.9"
   }
 }

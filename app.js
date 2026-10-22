@@ -14,6 +14,7 @@ const { preparaContesto } = require('./src/middlewares/contesto.middleware');
 const { limiteGenerale } = require('./src/middlewares/limiti.middleware');
 const { rottaNonTrovata, gestoreErrori } = require('./src/middlewares/errori.middleware');
 const { inviaSuccesso } = require('./src/utils/risposta');
+const file = require('./src/utils/file');
 
 const app = express();
 
@@ -59,7 +60,13 @@ app.use(
     res.set('Cross-Origin-Resource-Policy', 'cross-origin');
     return next();
   },
-  express.static(path.resolve(config.upload.cartella, 'media'), { index: false, maxAge: '7d' }),
+  config.upload.cloudinary
+    ? (req, res, next) => {
+        if (req.path.includes('..')) return next(); // come express.static: 404
+        res.set('Cache-Control', 'public, max-age=604800');
+        return res.redirect(302, file.urlPubblico(`media${req.path}`));
+      }
+    : express.static(path.resolve(config.upload.cartella, 'media'), { index: false, maxAge: '7d' }),
 );
 
 app.get('/salute', (req, res) => inviaSuccesso(res, 200, { stato: 'ok' }));
