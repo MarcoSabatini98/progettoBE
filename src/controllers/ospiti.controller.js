@@ -5,7 +5,7 @@
 
 const ospitiService = require('../services/ospiti.service');
 const { inviaSuccesso } = require('../utils/risposta');
-const { percorsoAssoluto } = require('../utils/file');
+const { locale } = require('../utils/file');
 
 const elenco = async (req, res) => {
   const ospiti = await ospitiService.elenco(req.query);
@@ -43,7 +43,7 @@ const aggiungiDocumento = async (req, res) => {
 
 const scaricaDocumento = async (req, res) => {
   const documento = await ospitiService.documento(req.params.documentoId);
-  return res.download(percorsoAssoluto(documento.percorso), documento.nome_originale);
+  return res.download(await locale(documento.percorso), documento.nome_originale);
 };
 
 const eliminaDocumento = async (req, res) => {

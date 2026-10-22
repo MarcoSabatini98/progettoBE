@@ -72,14 +72,14 @@ async function dettaglio(id) {
 }
 
 /** Percorso su disco e nome del file (pdf o xml) da scaricare. */
-function fileDellaFattura(fattura, tipo) {
+async function fileDellaFattura(fattura, tipo) {
   const percorso = tipo === 'xml' ? fattura.percorso_xml : fattura.percorso_pdf;
   if (!percorso) {
     throw conflitto('FILE_NON_DISPONIBILE', "Il file si genera all'emissione della fattura");
   }
   const nome =
     tipo === 'xml' ? fattura.nome_file_xml : `fattura-${fattura.anno}-${fattura.numero}.pdf`;
-  return { percorso: file.percorsoAssoluto(percorso), nome };
+  return { percorso: await file.locale(percorso), nome };
 }
 
 async function percorsoFile(id, tipo = 'pdf') {
@@ -493,7 +493,7 @@ async function inviaAlCliente(id) {
       allegati: [
         {
           filename: `fattura-${fattura.anno}-${fattura.numero}.pdf`,
-          path: file.percorsoAssoluto(fattura.percorso_pdf),
+          path: await file.locale(fattura.percorso_pdf),
         },
       ],
     });

@@ -17,6 +17,7 @@ const { ALLEGATI_MAX } = require('../constants/chat.constants');
 const { CARTELLE_UPLOAD } = require('../constants/sistema.constants');
 const { uuid } = require('../utils/sicurezza');
 const { ErroreApp } = require('../utils/errori');
+const { carica, percorsoRelativo } = require('../utils/file');
 
 const IMMAGINI = {
   'image/jpeg': '.jpg',
@@ -68,7 +69,7 @@ const limite = (caricato) =>
 
 /**
  * Dopo multer: rifiuta la richiesta se un file supera il limite del suo tipo
- * o non è davvero del formato dichiarato.
+ * o non è davvero del formato dichiarato. Poi lo copia su Cloudinary, se attivo.
  */
 async function verificaContenuto(req, res, next) {
   const caricati = req.file ? [req.file] : (req.files ?? []);
@@ -87,6 +88,7 @@ async function verificaContenuto(req, res, next) {
       'Il contenuto del file non corrisponde al suo formato',
     );
   }
+  await Promise.all(caricati.map((caricato) => carica(percorsoRelativo(caricato.path))));
   return next();
 }
 

@@ -5,7 +5,7 @@
 
 const utentiService = require('../services/utenti.service');
 const { inviaSuccesso } = require('../utils/risposta');
-const { percorsoAssoluto } = require('../utils/file');
+const { locale } = require('../utils/file');
 
 // ─────────────────────────────────────
 // Area personale
@@ -37,7 +37,7 @@ const aggiungiDocumento = async (req, res) => {
 
 const scaricaDocumento = async (req, res) => {
   const documento = await utentiService.mioDocumento(req.contesto.utenteId, req.params.id);
-  return res.download(percorsoAssoluto(documento.percorso), documento.nome_originale);
+  return res.download(await locale(documento.percorso), documento.nome_originale);
 };
 
 const eliminaDocumento = async (req, res) => {

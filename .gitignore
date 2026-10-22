@@ -12,3 +12,6 @@ uploads/
 
 # Media dell'utente per il seed di prova: restano in locale (database/seed-prova/)
 database/dati/media/
+
+# File generati dal seed in locale per caricarli su Cloudinary (npm run cloudinary:carica)
+uploads-demo/
