@@ -373,7 +373,7 @@ async function allegato(id, chi) {
   }
   await lato(trovato.messaggio.conversazione, chi);
   return {
-    percorso: file.percorsoAssoluto(trovato.percorso),
+    percorso: await file.locale(trovato.percorso),
     nome: trovato.nome_originale,
     tipo: trovato.tipo_mime,
   };
