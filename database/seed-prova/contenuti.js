@@ -443,7 +443,7 @@ const PAGINE = {
         ],
       },
       {
-        foto: { cliente: 'sezione-lavoro.png', riserva: 'struttura-citta.jpg' },
+        foto: 'struttura-hall.jpg',
         titolo: [
           'Lavora con noi',
           'Work with us',
@@ -481,7 +481,7 @@ const PAGINE = {
     ],
   },
   camere: {
-    copertina: { cliente: 'pagina-camere.jpg', riserva: 'doppia-1.jpg' },
+    copertina: 'doppia-1.jpg',
     descrizione: [
       'Dalla singola per chi viaggia per lavoro alla suite con la vasca: scegli la tua.',
       'From the single for business trips to the suite with a bathtub: pick yours.',
