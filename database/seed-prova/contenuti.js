@@ -443,7 +443,7 @@ const PAGINE = {
         ],
       },
       {
-        foto: { cliente: 'sezione-lavoro.png', riserva: 'struttura-citta.jpg' },
+        foto: 'struttura-hall.jpg',
         titolo: [
           'Lavora con noi',
           'Work with us',
